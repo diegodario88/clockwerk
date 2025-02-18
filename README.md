@@ -1,4 +1,4 @@
-# WorkClock
+# Clockwerk
 
 **WorkClock** is a terminal user interface (TUI) application written in Go for managing electronic timekeeping at work. This tool allows you to clock in and out, including starting and ending breaks, directly from your terminal. It replaces the need for traditional timekeeping apps with a simple and efficient command-line interface.
 

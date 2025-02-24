@@ -11,29 +11,29 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/common-nighthawk/go-figure"
 )
 
 type doneMsg struct{}
 type tickMsg struct{}
 
 type Model struct {
-	step         int       // 0: CPF, 1: Senha, 2: Manter Logado, 3: Autenticando, 4: Buscando Eventos, 5: Timer (registro de ponto), 6: Finalizado
-	cpfForm      *huh.Form // Formulário CPF
-	passwordForm *huh.Form // Formulário Senha
-	keepForm     *huh.Form // Formulário Manter Logado
-	cpf          string    // CPF informado
-	password     string    // Senha informada
-	keepLogged   bool      // Deseja manter logado?
+	step         int
+	cpfForm      *huh.Form
+	passwordForm *huh.Form
+	keepForm     *huh.Form
+	cpf          string
+	password     string
+	keepLogged   bool
 	spinner      spinner.Model
-
-	// Campos para o timer (registro de ponto)
-	timerRunning bool          // Indica se o timer está rodando
-	elapsed      time.Duration // Tempo acumulado
-	punchCount   int           // Contador de batidas (deve ser 4 no total)
+	timerRunning bool
+	elapsed      time.Duration
+	punchCount   int
 }
 
 var theme *huh.Theme = huh.ThemeBase()
 var defaultConfirm = true
+var clockWerkColor = "#E28413"
 
 func waitCmd(seconds int) tea.Cmd {
 	return tea.Tick(time.Duration(seconds)*time.Second, func(t time.Time) tea.Msg {
@@ -58,7 +58,6 @@ func newCPFForm(initialValue string) *huh.Form {
 		Key("cpf").
 		Title("CPF").
 		Placeholder("Digite").
-		// Observe que usamos uma variável ponteiro para o valor inicial:
 		Value(&initialValue).
 		CharLimit(11).
 		Validate(validateCPF)
@@ -123,15 +122,14 @@ func NewModel() Model {
 	sp.Spinner = spinner.Points
 	sp.Style = lipgloss.NewStyle().
 		PaddingLeft(1).
-		Foreground(lipgloss.Color("#0097F4"))
+		Foreground(lipgloss.Color(clockWerkColor))
 
 	return Model{
 		step:         0,
 		cpfForm:      newCPFForm(""),
 		passwordForm: newPasswordForm(""),
-		keepForm:     newKeepForm(false),
+		keepForm:     newKeepForm(true),
 		spinner:      sp,
-		// Timer inicia parado, sem tempo acumulado e 0 batidas
 		timerRunning: false,
 		elapsed:      0,
 		punchCount:   0,
@@ -144,7 +142,6 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Tratamento geral de teclas
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -210,7 +207,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.keepLogged = m.keepForm.GetBool("keep")
 			// Após esta etapa, simulamos dois spinners e depois iniciamos o timer.
 			m.step = 3
-			return m, tea.Batch(waitCmd(3), m.spinner.Tick)
+			return m, tea.Batch(waitCmd(1), m.spinner.Tick)
 		}
 		return m, cmd
 
@@ -219,7 +216,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.(type) {
 		case doneMsg:
 			m.step = 4
-			return m, tea.Batch(waitCmd(3), m.spinner.Tick)
+			return m, tea.Batch(waitCmd(1), m.spinner.Tick)
 		}
 		return m, cmd
 
@@ -227,9 +224,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		switch msg.(type) {
 		case doneMsg:
-			// Ao final das simulações, iniciamos o timer (registro de ponto)
 			m.step = 5
-			// O timer inicia parado (não dispara o tick)
 			return m, nil
 		}
 		return m, cmd
@@ -309,14 +304,28 @@ func (m Model) View() string {
 		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Buscando últimos eventos...") + "\n\n")
 		b.WriteString(m.spinner.View())
 	case 5:
-		// Exibe o relógio no formato HH:MM:SS
+		now := time.Now()
 		h := int(m.elapsed.Hours())
 		mm := int(m.elapsed.Minutes()) % 60
 		ss := int(m.elapsed.Seconds()) % 60
 		timeStr := fmt.Sprintf("%02d:%02d:%02d", h, mm, ss)
-		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Registro de Ponto - Timer") + "\n\n")
-		b.WriteString("Tempo acumulado: " + timeStr + "\n")
-		b.WriteString(fmt.Sprintf("Batidas: %d/4\n", m.punchCount))
+		b.WriteString(
+			lipgloss.NewStyle().Bold(true).Width(30).Render("Registro de Ponto - Timer") + "\n\n",
+		)
+		b.WriteString(
+			lipgloss.NewStyle().Render("Data atual: " + now.Local().Format("02/01/2006") + "\n"),
+		)
+		b.WriteString(fmt.Sprintf("Registros de ponto: %d\n", m.punchCount))
+		b.WriteString(lipgloss.NewStyle().Render("Tempo de trabalho:\n\n"))
+		b.WriteString(
+			lipgloss.NewStyle().
+				Width(200).
+				Height(10).
+				Bold(true).
+				Foreground(lipgloss.Color(clockWerkColor)).
+				PaddingLeft(2).
+				Render(figure.NewFigure(timeStr, "starwars", true).String() + "\n"),
+		)
 		b.WriteString("\nPressione SPACE para iniciar/parar o timer. (q para sair)")
 	case 6:
 		h := int(m.elapsed.Hours())

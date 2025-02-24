@@ -3,15 +3,15 @@ module github.com/diegodario88/clockwerk
 go 1.22.5
 
 require (
-	github.com/charmbracelet/huh/spinner v0.0.0-20250213143221-71c9d72e6770
+	github.com/charmbracelet/bubbles v0.20.0
+	github.com/charmbracelet/bubbletea v1.3.3
 	github.com/charmbracelet/lipgloss v1.0.0
-	github.com/charmbracelet/x/exp/strings v0.0.0-20240722160745-212f7b056ed0
+	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be
 )
 
 require (
 	github.com/catppuccin/go v0.2.0 // indirect
-	github.com/charmbracelet/bubbles v0.20.0 // indirect
-	github.com/charmbracelet/bubbletea v1.3.3 // indirect
+	github.com/charmbracelet/x/exp/strings v0.0.0-20240722160745-212f7b056ed0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 )

@@ -18,17 +18,19 @@ type doneMsg struct{}
 type tickMsg struct{}
 
 type Model struct {
-	step         int
-	cpfForm      *huh.Form
-	passwordForm *huh.Form
-	keepForm     *huh.Form
-	cpf          string
-	password     string
-	keepLogged   bool
-	spinner      spinner.Model
-	timerRunning bool
-	elapsed      time.Duration
-	punchCount   int
+	step          int
+	cpfForm       *huh.Form
+	passwordForm  *huh.Form
+	keepForm      *huh.Form
+	punchForm     *huh.Form
+	cpf           string
+	password      string
+	keepLogged    bool
+	spinner       spinner.Model
+	timerRunning  bool
+	elapsed       time.Duration
+	punchCount    int
+	tickScheduled bool
 }
 
 var theme *huh.Theme = huh.ThemeBase()
@@ -117,6 +119,20 @@ func newKeepForm(initialValue bool) *huh.Form {
 	).WithWidth(45).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
 }
 
+func newPunchConfirmForm() *huh.Form {
+	defaultValue := true
+	confirm := huh.NewConfirm().
+		Key("confirm").
+		Title("Bater o ponto?").
+		Value(&defaultValue).
+		Affirmative("Sim").
+		Negative("Cancelar")
+
+	return huh.NewForm(
+		huh.NewGroup(confirm),
+	).WithWidth(45).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
+}
+
 func NewModel() Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Points
@@ -129,10 +145,12 @@ func NewModel() Model {
 		cpfForm:      newCPFForm(""),
 		passwordForm: newPasswordForm(""),
 		keepForm:     newKeepForm(true),
+		punchForm:    nil,
 		spinner:      sp,
 		timerRunning: false,
 		elapsed:      0,
 		punchCount:   0,
+		keepLogged:   true,
 	}
 }
 
@@ -185,7 +203,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.password = m.passwordForm.GetString("password")
 			m.step = 2
-			m.keepForm = newKeepForm(m.keepForm.GetBool("keep"))
+			m.keepForm = newKeepForm(m.keepLogged)
 			return m, m.keepForm.Init()
 		}
 		return m, cmd
@@ -199,13 +217,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.keepForm.State == huh.StateCompleted {
 			if !m.keepForm.GetBool("next") {
-				// Volta para a etapa de senha
 				m.step = 1
 				m.passwordForm = newPasswordForm(m.passwordForm.GetString("password"))
+				m.keepLogged = m.keepForm.GetBool("keep")
 				return m, m.passwordForm.Init()
 			}
 			m.keepLogged = m.keepForm.GetBool("keep")
-			// Após esta etapa, simulamos dois spinners e depois iniciamos o timer.
 			m.step = 3
 			return m, tea.Batch(waitCmd(1), m.spinner.Tick)
 		}
@@ -229,26 +246,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 
-	case 5: // Etapa 6: Timer (registro de ponto)
+	case 5:
+		if m.punchForm != nil {
+			updatedForm, c := m.punchForm.Update(msg)
+			if f, ok := updatedForm.(*huh.Form); ok {
+				m.punchForm = f
+			}
+			cmd = c
+
+			if m.punchForm.State == huh.StateCompleted {
+				if m.punchForm.GetBool("confirm") {
+					// Se confirmado, Inicie aqui um spinner para simular um HTTP POST.
+					// Se tudo ocorrer bem, alterna o estado do timer e registra a batida.
+					m.step = 6
+					m.punchForm = nil
+
+					return m, tea.Batch(waitCmd(1), m.spinner.Tick)
+				} else {
+					m.punchForm = nil
+					if m.timerRunning {
+						return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+							return tickMsg{}
+						})
+					}
+				}
+			}
+
+			return m, cmd
+		}
+
+		// Se o formulário de confirmação não está ativo, então:
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
 			switch msg.String() {
 			case " ":
-				// Pressionar space alterna o timer
-				if m.timerRunning {
-					m.timerRunning = false
-					m.punchCount++ // Conta uma batida ao parar
-					if m.punchCount >= 4 {
-						m.step = 6 // Finaliza após 4 batidas
-						return m, nil
-					}
-				} else {
-					m.timerRunning = true
-					return m, tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} })
-				}
+				// Ao pressionar SPACE e sem formulário ativo, dispara o formulário de confirmação.
+				m.punchForm = newPunchConfirmForm()
+				return m, m.punchForm.Init()
+
 			case "q", "ctrl+c":
 				return m, tea.Quit
 			}
+
 		case tickMsg:
 			if m.timerRunning {
 				m.elapsed += time.Second
@@ -257,19 +296,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if m.timerRunning {
-			return m, tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} })
-		}
 		return m, nil
 
-	case 6: // Etapa Final: Exibe o resultado final do registro de ponto
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			if msg.String() == "q" || msg.String() == "ctrl+c" {
-				return m, tea.Quit
+	case 6:
+		m.spinner, cmd = m.spinner.Update(msg)
+		switch msg.(type) {
+		case doneMsg:
+			m.step = 5
+			m.timerRunning = !m.timerRunning
+			m.punchCount++
+
+			if m.timerRunning {
+				return m, tea.Batch(cmd, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+					m.tickScheduled = false
+					return tickMsg{}
+				}))
 			}
+
+			return m, nil
 		}
-		return m, nil
+
+		return m, cmd
 
 	default:
 		return m, nil
@@ -326,15 +373,15 @@ func (m Model) View() string {
 				PaddingLeft(2).
 				Render(figure.NewFigure(timeStr, "starwars", true).String() + "\n"),
 		)
-		b.WriteString("\nPressione SPACE para iniciar/parar o timer. (q para sair)")
+		if m.punchForm != nil {
+			b.WriteString("\nConfirma o registro de ponto?\n")
+			b.WriteString(m.punchForm.View())
+		} else {
+			b.WriteString("\nPressione SPACE para iniciar/parar o timer. (q para sair)")
+		}
 	case 6:
-		h := int(m.elapsed.Hours())
-		mm := int(m.elapsed.Minutes()) % 60
-		ss := int(m.elapsed.Seconds()) % 60
-		timeStr := fmt.Sprintf("%02d:%02d:%02d", h, mm, ss)
-		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Registro Finalizado!") + "\n\n")
-		b.WriteString("Tempo total registrado: " + timeStr + "\n")
-		b.WriteString("\nPressione 'q' para sair.")
+		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Registrando evento ponto...") + "\n\n")
+		b.WriteString(m.spinner.View())
 	}
 
 	return b.String()

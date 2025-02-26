@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,9 +24,24 @@ import (
 	"github.com/common-nighthawk/go-figure"
 )
 
+type loginRequest struct {
+	User     string `json:"user"`
+	Password string `json:"password"`
+}
+
+type loginResponse struct {
+	Token string `json:"token"`
+}
+
+type errorResponse struct {
+	Message string   `json:"message"`
+	Errors  []string `json:"errors"`
+}
+
 type UserCredentials struct {
 	CPF      string `json:"cpf"`
 	Password string `json:"password"`
+	Token    string `json:"token"`
 }
 
 type EncryptedData struct {
@@ -35,27 +52,89 @@ type EncryptedData struct {
 type doneMsg struct{}
 type tickMsg struct{}
 
+type loginFailMsg struct {
+	error string
+}
+
+type loginSuccessMsg struct {
+	token string
+}
+
 type Model struct {
-	step          int
-	cpfForm       *huh.Form
-	passwordForm  *huh.Form
-	keepForm      *huh.Form
-	punchForm     *huh.Form
-	forgetForm    *huh.Form
-	cpf           string
-	password      string
-	keepLogged    bool
-	spinner       spinner.Model
-	timerRunning  bool
-	elapsed       time.Duration
-	punchCount    int
-	tickScheduled bool
+	step            int
+	cpfForm         *huh.Form
+	passwordForm    *huh.Form
+	keepForm        *huh.Form
+	punchForm       *huh.Form
+	forgetForm      *huh.Form
+	cpf             string
+	password        string
+	token           string
+	keepLogged      bool
+	loginFailMsg    loginFailMsg
+	loginSuccessMsg loginSuccessMsg
+	spinner         spinner.Model
+	timerRunning    bool
+	elapsed         time.Duration
+	punchCount      int
+	tickScheduled   bool
 }
 
 var theme *huh.Theme = huh.ThemeBase()
 
 var defaultConfirm = true
 var clockWerkColor = "#E28413"
+
+func gatewayLogin(user, password string) (string, error) {
+	requestBody := loginRequest{
+		User:     user,
+		Password: password,
+	}
+
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("erro ao serializar dados: %w", err)
+	}
+
+	req, err := http.NewRequest(
+		"POST",
+		"https://snr-getaway.fly.dev/senior/login",
+		bytes.NewBuffer(jsonBody),
+	)
+	if err != nil {
+		return "", fmt.Errorf("erro ao criar requisição: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("erro ao executar requisição: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var successResponse loginResponse
+		if err := json.NewDecoder(resp.Body).Decode(&successResponse); err != nil {
+			return "", fmt.Errorf("erro ao decodificar resposta: %w", err)
+		}
+		return successResponse.Token, nil
+
+	case http.StatusUnauthorized:
+		fallthrough
+	case http.StatusUnprocessableEntity:
+		var errorResponse errorResponse
+		if err := json.NewDecoder(resp.Body).Decode(&errorResponse); err != nil {
+			return "", fmt.Errorf("erro ao decodificar resposta de erro: %w", err)
+		}
+		return "", fmt.Errorf("%s", errorResponse.Message)
+
+	default:
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("resposta inesperada (status %d): %s", resp.StatusCode, string(body))
+	}
+}
 
 func deriveEncryptionKey() []byte {
 	hostname, err := os.Hostname()
@@ -203,6 +282,17 @@ func waitCmd(seconds int) tea.Cmd {
 	})
 }
 
+func handleAuthentication(user string, password string) tea.Cmd {
+	return func() tea.Msg {
+		token, err := gatewayLogin(user, password)
+		if err != nil {
+			return loginFailMsg{error: err.Error()}
+		}
+
+		return loginSuccessMsg{token: token}
+	}
+}
+
 func newCPFForm(initialValue string) *huh.Form {
 	validateCPF := func(s string) error {
 		if len(s) != 11 {
@@ -226,7 +316,7 @@ func newCPFForm(initialValue string) *huh.Form {
 		Value(&defaultConfirm).
 		Key("next").
 		Affirmative("Prosseguir").
-		Negative("Voltar")
+		Negative("")
 	return huh.NewForm(
 		huh.NewGroup(cpfInput, nextConfirm0),
 	).WithWidth(45).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
@@ -309,17 +399,20 @@ func NewModel() Model {
 	initialStep := 0
 	initialCPF := ""
 	initialPassword := ""
+	initialToken := ""
 
-	if err == nil && creds.CPF != "" && creds.Password != "" {
-		initialStep = 3
+	if err == nil && creds.CPF != "" && creds.Password != "" && creds.Token != "" {
+		initialStep = 4
 		initialCPF = creds.CPF
 		initialPassword = creds.Password
+		initialToken = creds.Token
 	}
 
 	return Model{
 		step:         initialStep,
 		cpf:          initialCPF,
 		password:     initialPassword,
+		token:        initialToken,
 		cpfForm:      newCPFForm(initialCPF),
 		passwordForm: newPasswordForm(initialPassword),
 		keepForm:     newKeepForm(true),
@@ -344,7 +437,7 @@ func (m Model) Init() tea.Cmd {
 
 	if m.step == 0 {
 		return m.cpfForm.Init()
-	} else if m.step == 3 {
+	} else if m.step == 4 {
 		return tea.Batch(waitCmd(1), m.spinner.Tick)
 	}
 
@@ -360,6 +453,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	var cmd tea.Cmd
+
 	switch m.step {
 	case 0: // Etapa 1: CPF
 		newForm, c := m.cpfForm.Update(msg)
@@ -370,11 +464,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.cpfForm.State == huh.StateCompleted {
 			m.cpf = m.cpfForm.GetString("cpf")
 			m.step = 1
-			// Passa valor anterior (se houver) para o formulário de senha
 			m.passwordForm = newPasswordForm(m.passwordForm.GetString("password"))
 			return m, m.passwordForm.Init()
 		}
 		return m, cmd
+
 	case 1: // Etapa 2: Senha
 		newForm, c := m.passwordForm.Update(msg)
 		if f, ok := newForm.(*huh.Form); ok {
@@ -383,7 +477,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd = c
 		if m.passwordForm.State == huh.StateCompleted {
 			if !m.passwordForm.GetBool("next") {
-				// Volta para CPF (mantendo o valor digitado)
 				m.step = 0
 				m.cpfForm = newCPFForm(m.cpfForm.GetString("cpf"))
 				return m, m.cpfForm.Init()
@@ -394,6 +487,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.keepForm.Init()
 		}
 		return m, cmd
+
 	case 2: // Etapa 3: Manter Logado
 		newForm, c := m.keepForm.Update(msg)
 		if f, ok := newForm.(*huh.Form); ok {
@@ -409,11 +503,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.keepLogged = m.keepForm.GetBool("keep")
 			m.step = 3
+			return m, tea.Batch(
+				handleAuthentication(fmt.Sprintf("%s@gazin.com.br", m.cpf), m.password),
+				m.spinner.Tick,
+			)
+		}
+		return m, cmd
+
+	case 3: // Etapa 4: Spinner (simulação de autenticação)
+		m.spinner, cmd = m.spinner.Update(msg)
+		switch msg := msg.(type) {
+		case loginFailMsg:
+			m.loginFailMsg = msg
+			return m, nil
+		case loginSuccessMsg:
+			m.loginSuccessMsg = msg
+			m.step = 4
 
 			if m.keepLogged {
 				creds := UserCredentials{
 					CPF:      m.cpf,
 					Password: m.password,
+					Token:    msg.token,
 				}
 				if err := saveCredentials(creds); err != nil {
 					log.Printf("Erro ao salvar credenciais: %v", err)
@@ -421,16 +532,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			return m, tea.Batch(waitCmd(1), m.spinner.Tick)
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "r":
+				fallthrough
+			case "R":
+				if m.loginFailMsg.error != "" {
+					m.step = 0
+					m.cpfForm = newCPFForm(m.cpfForm.GetString("cpf"))
+					return m, m.cpfForm.Init()
+				}
+			}
 		}
 		return m, cmd
-	case 3: // Etapa 4: Spinner (simulação de autenticação)
-		m.spinner, cmd = m.spinner.Update(msg)
-		switch msg.(type) {
-		case doneMsg:
-			m.step = 4
-			return m, tea.Batch(waitCmd(1), m.spinner.Tick)
-		}
-		return m, cmd
+
 	case 4: // Etapa 5: Spinner (simulação de busca de eventos)
 		m.spinner, cmd = m.spinner.Update(msg)
 		switch msg.(type) {
@@ -439,6 +554,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, cmd
+
 	case 5:
 		// Tratamento para o formulário de esquecer credenciais
 		if m.forgetForm != nil {
@@ -449,7 +565,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = c
 			if m.forgetForm.State == huh.StateCompleted {
 				if m.forgetForm.GetBool("confirm") {
-					// Usuário confirmou que quer esquecer as credenciais
 					if err := deleteCredentials(); err != nil {
 						log.Printf("Erro ao deletar credenciais: %v", err)
 					}
@@ -509,6 +624,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, nil
+
 	case 6:
 		m.spinner, cmd = m.spinner.Update(msg)
 		switch msg.(type) {
@@ -525,6 +641,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, cmd
+
 	default:
 		return m, nil
 	}
@@ -532,12 +649,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	var b strings.Builder
+
 	switch m.step {
 	case 0:
 		b.WriteString(lipgloss.NewStyle().
 			Bold(true).
 			Render("Autenticação - Etapa 1/3: Identificação") + "\n\n")
 		b.WriteString(m.cpfForm.View())
+
 	case 1:
 		loginEmail := fmt.Sprintf("%s@gazin.com.br", m.cpf)
 		b.WriteString(
@@ -545,17 +664,51 @@ func (m Model) View() string {
 		)
 		b.WriteString(lipgloss.NewStyle().Italic(true).Render("Login: "+loginEmail) + "\n\n")
 		b.WriteString(m.passwordForm.View())
+
 	case 2:
 		b.WriteString(lipgloss.NewStyle().
 			Bold(true).
 			Render("Autenticação - Etapa 3/3: Manter Logado") + "\n\n")
 		b.WriteString(m.keepForm.View())
+
 	case 3:
-		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Autenticando...") + "\n\n")
-		b.WriteString(m.spinner.View())
+		if m.loginFailMsg.error != "" {
+			b.WriteString(
+				lipgloss.NewStyle().
+					Bold(true).
+					Render("Ops.. Falha no processo de autenticação") +
+					"\n\n",
+			)
+			b.WriteString(
+				lipgloss.NewStyle().
+					Italic(true).
+					Render(fmt.Sprintf("Login: %s@gazin.com.br", m.cpf)) + "\n",
+			)
+			b.WriteString(
+				lipgloss.NewStyle().
+					Italic(true).
+					Render(fmt.Sprintf("Mensagem: %s", m.loginFailMsg.error)) +
+					"\n\n",
+			)
+			b.WriteString(
+				lipgloss.NewStyle().
+					PaddingLeft(2).
+					Blink(true).
+					Foreground(lipgloss.Color(clockWerkColor)).
+					Render(
+						"¯\\_(ツ)_/¯",
+					) + "\n\n",
+			)
+			b.WriteString("Pressione R para tentar novamente.")
+		} else {
+			b.WriteString(lipgloss.NewStyle().Bold(true).Render("Autenticando...") + "\n\n")
+			b.WriteString(m.spinner.View())
+		}
+
 	case 4:
 		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Buscando últimos eventos...") + "\n\n")
 		b.WriteString(m.spinner.View())
+
 	case 5:
 		now := time.Now()
 		h := int(m.elapsed.Hours())
@@ -591,10 +744,12 @@ func (m Model) View() string {
 			b.WriteString("\nPressione E para esquecer credenciais salvas.")
 			b.WriteString("\nPressione Q para sair.")
 		}
+
 	case 6:
 		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Registrando evento ponto...") + "\n\n")
 		b.WriteString(m.spinner.View())
 	}
+
 	return b.String()
 }
 

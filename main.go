@@ -1,19 +1,9 @@
 package main
 
 import (
-	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,259 +12,55 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/common-nighthawk/go-figure"
+	"github.com/diegodario88/clockwerk/senior"
+	"github.com/diegodario88/clockwerk/storage"
 )
-
-type loginRequest struct {
-	User     string `json:"user"`
-	Password string `json:"password"`
-}
-
-type loginResponse struct {
-	Token string `json:"token"`
-}
-
-type errorResponse struct {
-	Message string   `json:"message"`
-	Errors  []string `json:"errors"`
-}
-
-type UserCredentials struct {
-	CPF      string `json:"cpf"`
-	Password string `json:"password"`
-	Token    string `json:"token"`
-}
-
-type EncryptedData struct {
-	Data string `json:"data"`
-	IV   string `json:"iv"`
-}
 
 type doneMsg struct{}
 type tickMsg struct{}
+type failedMsg struct{ error string }
+type loginMsg struct{ token string }
 
-type loginFailMsg struct {
-	error string
+type eventMsg struct {
+	employeeName string
+	companyName  string
+	shift        string
+	timeTable    string
+	clocking     map[string][]clockingMsg
 }
 
-type loginSuccessMsg struct {
-	token string
+type clockingMsg struct {
+	id       string
+	date     string
+	time     string
+	platform string
 }
 
 type Model struct {
-	step            int
-	cpfForm         *huh.Form
-	passwordForm    *huh.Form
-	keepForm        *huh.Form
-	punchForm       *huh.Form
-	forgetForm      *huh.Form
-	cpf             string
-	password        string
-	token           string
-	keepLogged      bool
-	loginFailMsg    loginFailMsg
-	loginSuccessMsg loginSuccessMsg
-	spinner         spinner.Model
-	timerRunning    bool
-	elapsed         time.Duration
-	punchCount      int
-	tickScheduled   bool
+	step           int
+	punchCount     int
+	keepLogged     bool
+	timerRunning   bool
+	tickScheduled  bool
+	hasAuthRecover bool
+	cpf            string
+	password       string
+	token          string
+	cpfForm        *huh.Form
+	passwordForm   *huh.Form
+	keepForm       *huh.Form
+	punchForm      *huh.Form
+	forgetForm     *huh.Form
+	failedMsg      failedMsg
+	loginMsg       loginMsg
+	eventMsg       eventMsg
+	spinner        spinner.Model
+	elapsed        time.Duration
 }
 
 var theme *huh.Theme = huh.ThemeBase()
-
 var defaultConfirm = true
 var clockWerkColor = "#E28413"
-
-func gatewayLogin(user, password string) (string, error) {
-	requestBody := loginRequest{
-		User:     user,
-		Password: password,
-	}
-
-	jsonBody, err := json.Marshal(requestBody)
-	if err != nil {
-		return "", fmt.Errorf("erro ao serializar dados: %w", err)
-	}
-
-	req, err := http.NewRequest(
-		"POST",
-		"https://snr-getaway.fly.dev/senior/login",
-		bytes.NewBuffer(jsonBody),
-	)
-	if err != nil {
-		return "", fmt.Errorf("erro ao criar requisição: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("erro ao executar requisição: %w", err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		var successResponse loginResponse
-		if err := json.NewDecoder(resp.Body).Decode(&successResponse); err != nil {
-			return "", fmt.Errorf("erro ao decodificar resposta: %w", err)
-		}
-		return successResponse.Token, nil
-
-	case http.StatusUnauthorized:
-		fallthrough
-	case http.StatusUnprocessableEntity:
-		var errorResponse errorResponse
-		if err := json.NewDecoder(resp.Body).Decode(&errorResponse); err != nil {
-			return "", fmt.Errorf("erro ao decodificar resposta de erro: %w", err)
-		}
-		return "", fmt.Errorf("%s", errorResponse.Message)
-
-	default:
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("resposta inesperada (status %d): %s", resp.StatusCode, string(body))
-	}
-}
-
-func deriveEncryptionKey() []byte {
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "unknown"
-	}
-
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		homeDir = "unknown"
-	}
-
-	seedData := hostname + homeDir + "clockwerk-salt-19538276"
-
-	hash := sha256.Sum256([]byte(seedData))
-	return hash[:]
-}
-
-func getCredentialsFilePath() string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		log.Printf("Erro ao obter diretório do usuário: %v", err)
-		return "clockwerk_credentials.enc"
-	}
-	return filepath.Join(homeDir, ".clockwerk_credentials.enc")
-}
-
-func encrypt(data []byte, key []byte) ([]byte, []byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	iv := make([]byte, aes.BlockSize)
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return nil, nil, err
-	}
-
-	stream := cipher.NewCFBEncrypter(block, iv)
-
-	ciphertext := make([]byte, len(data))
-	stream.XORKeyStream(ciphertext, data)
-
-	return ciphertext, iv, nil
-}
-
-func decrypt(ciphertext []byte, key []byte, iv []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
-	stream := cipher.NewCFBDecrypter(block, iv)
-
-	plaintext := make([]byte, len(ciphertext))
-	stream.XORKeyStream(plaintext, ciphertext)
-
-	return plaintext, nil
-}
-
-func saveCredentials(creds UserCredentials) error {
-	jsonData, err := json.Marshal(creds)
-	if err != nil {
-		return fmt.Errorf("erro ao serializar credenciais: %v", err)
-	}
-
-	key := deriveEncryptionKey()
-
-	ciphertext, iv, err := encrypt(jsonData, key)
-	if err != nil {
-		return fmt.Errorf("erro ao criptografar: %v", err)
-	}
-
-	encData := EncryptedData{
-		Data: base64.StdEncoding.EncodeToString(ciphertext),
-		IV:   base64.StdEncoding.EncodeToString(iv),
-	}
-
-	encJson, err := json.Marshal(encData)
-	if err != nil {
-		return fmt.Errorf("erro ao serializar dados criptografados: %v", err)
-	}
-
-	err = os.WriteFile(getCredentialsFilePath(), encJson, 0600) // Permissão apenas para o usuário
-	if err != nil {
-		return fmt.Errorf("erro ao salvar arquivo de credenciais: %v", err)
-	}
-
-	return nil
-}
-
-func loadCredentials() (UserCredentials, error) {
-	var creds UserCredentials
-
-	filePath := getCredentialsFilePath()
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return creds, nil
-		}
-		return creds, fmt.Errorf("erro ao ler arquivo de credenciais: %v", err)
-	}
-
-	var encData EncryptedData
-	if err := json.Unmarshal(data, &encData); err != nil {
-		return creds, fmt.Errorf("erro ao desserializar dados criptografados: %v", err)
-	}
-
-	ciphertext, err := base64.StdEncoding.DecodeString(encData.Data)
-	if err != nil {
-		return creds, fmt.Errorf("erro ao decodificar ciphertext: %v", err)
-	}
-
-	iv, err := base64.StdEncoding.DecodeString(encData.IV)
-	if err != nil {
-		return creds, fmt.Errorf("erro ao decodificar IV: %v", err)
-	}
-
-	key := deriveEncryptionKey()
-
-	plaintext, err := decrypt(ciphertext, key, iv)
-	if err != nil {
-		return creds, fmt.Errorf("erro ao descriptografar: %v", err)
-	}
-
-	if err := json.Unmarshal(plaintext, &creds); err != nil {
-		return creds, fmt.Errorf("erro ao desserializar credenciais: %v", err)
-	}
-
-	return creds, nil
-}
-
-func deleteCredentials() error {
-	filePath := getCredentialsFilePath()
-	err := os.Remove(filePath)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("erro ao remover arquivo de credenciais: %v", err)
-	}
-	return nil
-}
 
 func waitCmd(seconds int) tea.Cmd {
 	return tea.Tick(time.Duration(seconds)*time.Second, func(t time.Time) tea.Msg {
@@ -284,12 +70,43 @@ func waitCmd(seconds int) tea.Cmd {
 
 func handleAuthentication(user string, password string) tea.Cmd {
 	return func() tea.Msg {
-		token, err := gatewayLogin(user, password)
+		token, err := senior.GatewayLogin(user, password)
 		if err != nil {
-			return loginFailMsg{error: err.Error()}
+			return failedMsg{error: err.Error()}
 		}
 
-		return loginSuccessMsg{token: token}
+		return loginMsg{token: token}
+	}
+}
+
+func handleClockingEvent(token string) tea.Cmd {
+	return func() tea.Msg {
+		events, err := senior.GetClockingEvents(token)
+		if err != nil {
+			return failedMsg{error: err.Error()}
+		}
+		if len(events) == 0 {
+			return failedMsg{error: "lista de eventos vazia"}
+		}
+
+		grouped := make(map[string][]clockingMsg)
+		for _, event := range events {
+			cMsg := clockingMsg{
+				id:       event.ID,
+				date:     event.DateEvent,
+				time:     event.TimeEvent,
+				platform: event.Platform,
+			}
+			grouped[cMsg.date] = append(grouped[cMsg.date], cMsg)
+		}
+
+		return eventMsg{
+			employeeName: events[0].Employee.Name,
+			companyName:  events[0].Employee.Company.Name,
+			shift:        events[0].Employee.Shift,
+			timeTable:    events[0].Employee.Timetable,
+			clocking:     grouped,
+		}
 	}
 }
 
@@ -395,7 +212,7 @@ func NewModel() Model {
 		PaddingLeft(1).
 		Foreground(lipgloss.Color(clockWerkColor))
 
-	creds, err := loadCredentials()
+	creds, err := storage.LoadCredentials()
 	initialStep := 0
 	initialCPF := ""
 	initialPassword := ""
@@ -438,7 +255,7 @@ func (m Model) Init() tea.Cmd {
 	if m.step == 0 {
 		return m.cpfForm.Init()
 	} else if m.step == 4 {
-		return tea.Batch(waitCmd(1), m.spinner.Tick)
+		return tea.Batch(handleClockingEvent(m.token), m.spinner.Tick)
 	}
 
 	return nil
@@ -510,34 +327,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 
-	case 3: // Etapa 4: Spinner (simulação de autenticação)
+	case 3: // Etapa 4: Spinner (autenticação)
 		m.spinner, cmd = m.spinner.Update(msg)
 		switch msg := msg.(type) {
-		case loginFailMsg:
-			m.loginFailMsg = msg
+		case failedMsg:
+			m.failedMsg = msg
 			return m, nil
-		case loginSuccessMsg:
-			m.loginSuccessMsg = msg
+		case loginMsg:
+			m.loginMsg = msg
 			m.step = 4
+			m.failedMsg = failedMsg{error: ""}
 
 			if m.keepLogged {
-				creds := UserCredentials{
+				creds := storage.UserCredentials{
 					CPF:      m.cpf,
 					Password: m.password,
 					Token:    msg.token,
 				}
-				if err := saveCredentials(creds); err != nil {
+				if err := storage.SaveCredentials(creds); err != nil {
 					log.Printf("Erro ao salvar credenciais: %v", err)
 				}
 			}
-
-			return m, tea.Batch(waitCmd(1), m.spinner.Tick)
+			return m, tea.Batch(handleClockingEvent(m.token), m.spinner.Tick)
 		case tea.KeyMsg:
 			switch msg.String() {
 			case "r":
 				fallthrough
 			case "R":
-				if m.loginFailMsg.error != "" {
+				if m.failedMsg.error != "" {
 					m.step = 0
 					m.cpfForm = newCPFForm(m.cpfForm.GetString("cpf"))
 					return m, m.cpfForm.Init()
@@ -546,12 +363,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 
-	case 4: // Etapa 5: Spinner (simulação de busca de eventos)
+	case 4: // Etapa 5: Spinner (busca de eventos)
 		m.spinner, cmd = m.spinner.Update(msg)
-		switch msg.(type) {
-		case doneMsg:
-			m.step = 5
+		switch msg := msg.(type) {
+		case failedMsg:
+			if strings.Contains(msg.error, "Unauthorized") && !m.hasAuthRecover {
+				storage.DeleteCredentials()
+				m.step = 3
+				m.hasAuthRecover = true
+				return m, tea.Batch(
+					handleAuthentication(fmt.Sprintf("%s@gazin.com.br", m.cpf), m.password),
+					m.spinner.Tick,
+				)
+			}
+			m.failedMsg = msg
 			return m, nil
+		case eventMsg:
+			m.step = 5
+			log.Println(msg)
+			m.eventMsg = msg
+			return m, nil
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "r":
+				fallthrough
+			case "R":
+				if m.failedMsg.error != "" {
+					m.step = 0
+					m.cpfForm = newCPFForm(m.cpfForm.GetString("cpf"))
+					return m, m.cpfForm.Init()
+				}
+			}
 		}
 		return m, cmd
 
@@ -565,7 +407,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = c
 			if m.forgetForm.State == huh.StateCompleted {
 				if m.forgetForm.GetBool("confirm") {
-					if err := deleteCredentials(); err != nil {
+					if err := storage.DeleteCredentials(); err != nil {
 						log.Printf("Erro ao deletar credenciais: %v", err)
 					}
 				}
@@ -672,7 +514,7 @@ func (m Model) View() string {
 		b.WriteString(m.keepForm.View())
 
 	case 3:
-		if m.loginFailMsg.error != "" {
+		if m.failedMsg.error != "" {
 			b.WriteString(
 				lipgloss.NewStyle().
 					Bold(true).
@@ -687,7 +529,7 @@ func (m Model) View() string {
 			b.WriteString(
 				lipgloss.NewStyle().
 					Italic(true).
-					Render(fmt.Sprintf("Mensagem: %s", m.loginFailMsg.error)) +
+					Render(fmt.Sprintf("Mensagem: %s", m.failedMsg.error)) +
 					"\n\n",
 			)
 			b.WriteString(
@@ -706,8 +548,38 @@ func (m Model) View() string {
 		}
 
 	case 4:
-		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Buscando últimos eventos...") + "\n\n")
-		b.WriteString(m.spinner.View())
+		if m.failedMsg.error != "" {
+			b.WriteString(
+				lipgloss.NewStyle().
+					Bold(true).
+					Render("Ops.. Falha no processo de busca de eventos") +
+					"\n\n",
+			)
+			b.WriteString(
+				lipgloss.NewStyle().
+					Italic(true).
+					Render(fmt.Sprintf("Login: %s@gazin.com.br", m.cpf)) + "\n",
+			)
+			b.WriteString(
+				lipgloss.NewStyle().
+					Italic(true).
+					Render(fmt.Sprintf("Mensagem: %s", m.failedMsg.error)) +
+					"\n\n",
+			)
+			b.WriteString(
+				lipgloss.NewStyle().
+					PaddingLeft(2).
+					Blink(true).
+					Foreground(lipgloss.Color(clockWerkColor)).
+					Render(
+						"¯\\_(ツ)_/¯",
+					) + "\n\n",
+			)
+			b.WriteString("Pressione R para tentar novamente.")
+		} else {
+			b.WriteString(lipgloss.NewStyle().Bold(true).Render("Buscando últimos eventos...") + "\n\n")
+			b.WriteString(m.spinner.View())
+		}
 
 	case 5:
 		now := time.Now()

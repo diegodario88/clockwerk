@@ -8,14 +8,48 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/tree"
 	"github.com/common-nighthawk/go-figure"
 	"github.com/diegodario88/clockwerk/senior"
 	"github.com/diegodario88/clockwerk/storage"
 )
+
+type keyMap struct {
+	Punch       key.Binding
+	ForgetCreds key.Binding
+	Quit        key.Binding
+}
+
+func (k keyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Punch, k.ForgetCreds, k.Quit}
+}
+
+func (k keyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Punch, k.ForgetCreds, k.Quit},
+	}
+}
+
+var keys = keyMap{
+	Punch: key.NewBinding(
+		key.WithKeys(" "),
+		key.WithHelp("<space>", "Bater o ponto"),
+	),
+	ForgetCreds: key.NewBinding(
+		key.WithKeys("e", "E"),
+		key.WithHelp("<e>", "Esquecer credenciais"),
+	),
+	Quit: key.NewBinding(
+		key.WithKeys("ctrl+c"),
+		key.WithHelp("<ctrl+c>", "Sair"),
+	),
+}
 
 type tickMsg struct{}
 type failedMsg struct{ error string }
@@ -76,13 +110,18 @@ type Model struct {
 	eventMsg       eventMsg
 	spinner        spinner.Model
 	elapsed        time.Duration
+	help           help.Model
+	keys           keyMap
 }
 
 var theme *huh.Theme = huh.ThemeBase()
 var defaultConfirm = true
-var clockWerkColor = "#E28413"
+var todayKey = time.Now().Local().Format("2006-01-02")
 
-const timeLayout = "2006-01-02 15:04:05.999"
+const clockWerkColor = "#E28413"
+const timeLayout = "2006-01-02 15:04:05.999 -07:00"
+
+const defaultWidth = 80
 
 func handleAuthentication(user string, password string) tea.Cmd {
 	return func() tea.Msg {
@@ -107,9 +146,11 @@ func handleGetClockingEvent(token string) tea.Cmd {
 
 		grouped := make(map[string][]clockingMsg)
 		for _, event := range events {
+			timeStr := fmt.Sprintf("%s %s %s", event.DateEvent, event.TimeEvent, event.TimeZone)
+
 			parsedTime, err := time.Parse(
 				timeLayout,
-				fmt.Sprintf("%s %s", event.DateEvent, event.TimeEvent),
+				timeStr,
 			)
 
 			if err != nil {
@@ -226,7 +267,7 @@ func newCPFForm(initialValue string) *huh.Form {
 		Negative("")
 	return huh.NewForm(
 		huh.NewGroup(cpfInput, nextConfirm0),
-	).WithWidth(45).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
+	).WithWidth(defaultWidth).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
 }
 
 func newPasswordForm(initialValue string) *huh.Form {
@@ -249,7 +290,7 @@ func newPasswordForm(initialValue string) *huh.Form {
 		Affirmative("Prosseguir")
 	return huh.NewForm(
 		huh.NewGroup(passwordInput, nextConfirm1),
-	).WithWidth(45).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
+	).WithWidth(defaultWidth).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
 }
 
 func newKeepForm(initialValue bool) *huh.Form {
@@ -266,7 +307,7 @@ func newKeepForm(initialValue bool) *huh.Form {
 		Negative("Voltar")
 	return huh.NewForm(
 		huh.NewGroup(keepConfirm, proceedConfirm),
-	).WithWidth(45).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
+	).WithWidth(defaultWidth).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
 }
 
 func newPunchConfirmForm() *huh.Form {
@@ -279,7 +320,7 @@ func newPunchConfirmForm() *huh.Form {
 		Negative("Cancelar")
 	return huh.NewForm(
 		huh.NewGroup(confirm),
-	).WithWidth(45).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
+	).WithWidth(defaultWidth).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
 }
 
 func newForgetForm() *huh.Form {
@@ -292,7 +333,7 @@ func newForgetForm() *huh.Form {
 		Negative("Não")
 	return huh.NewForm(
 		huh.NewGroup(confirm),
-	).WithWidth(45).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
+	).WithWidth(defaultWidth).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
 }
 
 func NewModel() Model {
@@ -301,6 +342,8 @@ func NewModel() Model {
 	sp.Style = lipgloss.NewStyle().
 		PaddingLeft(1).
 		Foreground(lipgloss.Color(clockWerkColor))
+
+	helpModel := help.New()
 
 	creds, err := storage.LoadCredentials()
 	initialStep := 0
@@ -330,6 +373,8 @@ func NewModel() Model {
 		elapsed:      0,
 		punchCount:   0,
 		keepLogged:   true,
+		help:         helpModel,
+		keys:         keys,
 	}
 }
 
@@ -473,46 +518,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.eventMsg = msg
 			m.elapsed = 0
 			m.timerRunning = false
-			todayKey := time.Now().Local().Format("2006-01-02")
 			maybeTodayClock, exists := m.eventMsg.clocking[todayKey]
 			if exists {
 				m.punchCount = len(maybeTodayClock)
 				if len(maybeTodayClock)%2 != 0 {
-					currentTime := time.Now()
 					m.timerRunning = true
-					maybeTodayClock = append(maybeTodayClock, clockingMsg{
-						date: currentTime.Format("2006-01-02"),
-						time: currentTime.Format("15:04:05.999"),
-					})
+					loc := time.FixedZone("UTC-3", -3*3600)
+					nowInUTC3 := time.Now().In(loc)
+					formatted := nowInUTC3.Format(timeLayout)
+					parsedTime, err := time.ParseInLocation(timeLayout, formatted, loc)
+					if err != nil {
+						log.Println("Erro ao parsear o tempo:", err)
+					}
+					maybeTodayClock = append(maybeTodayClock, clockingMsg{eventTime: parsedTime})
 				}
 
 				for i := 0; i < len(maybeTodayClock)-1; i += 2 {
-					startTime, err := time.Parse(
-						timeLayout,
-						fmt.Sprintf("%s %s", maybeTodayClock[i].date, maybeTodayClock[i].time),
-					)
-					if err != nil {
-						log.Printf("Erro entrada: %v | Dado: %s %s",
-							err,
-							maybeTodayClock[i].date,
-							maybeTodayClock[i].time,
-						)
-						return m, nil
-					}
-
-					endTime, err := time.Parse(
-						timeLayout,
-						fmt.Sprintf("%s %s", maybeTodayClock[i+1].date, maybeTodayClock[i+1].time),
-					)
-					if err != nil {
-						log.Printf("Erro saída: %v | Dado: %s %s",
-							err,
-							maybeTodayClock[i+1].date,
-							maybeTodayClock[i+1].time,
-						)
-						return m, nil
-					}
-
+					startTime := maybeTodayClock[i].eventTime
+					endTime := maybeTodayClock[i+1].eventTime
 					m.elapsed += endTime.Sub(startTime)
 				}
 			}
@@ -588,16 +611,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Se o formulário de confirmação não está ativo, então:
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
-			switch msg.String() {
-			case " ":
+			switch {
+			case key.Matches(msg, m.keys.Punch):
 				// Ao pressionar SPACE e sem formulário ativo, dispara o formulário de confirmação.
 				m.punchForm = newPunchConfirmForm()
 				return m, m.punchForm.Init()
-			case "e", "E":
+			case key.Matches(msg, m.keys.ForgetCreds):
 				// Ao pressionar E, dispara o formulário para esquecer credenciais
 				m.forgetForm = newForgetForm()
 				return m, m.forgetForm.Init()
-			case "q", "ctrl+c":
+			case key.Matches(msg, m.keys.Quit):
 				return m, tea.Quit
 			}
 		case tickMsg:
@@ -726,17 +749,39 @@ func (m Model) View() string {
 		ss := int(m.elapsed.Seconds()) % 60
 		timeStr := fmt.Sprintf("%02d:%02d:%02d", h, mm, ss)
 		b.WriteString(
-			lipgloss.NewStyle().Bold(true).Width(30).Render("Registro de Ponto - Timer") + "\n\n",
+			lipgloss.NewStyle().
+				Bold(true).
+				Width(defaultWidth).
+				Render("Registro de Ponto - Clockwerk") +
+				"\n\n",
+		)
+		b.WriteString(
+			lipgloss.NewStyle().Render("Colaborador: " + m.eventMsg.employeeName + "\n"),
+		)
+		b.WriteString(
+			lipgloss.NewStyle().Render("Empresa: " + m.eventMsg.companyName + "\n"),
 		)
 		b.WriteString(
 			lipgloss.NewStyle().Render("Data atual: " + now.Local().Format("02/01/2006") + "\n"),
 		)
-		b.WriteString(fmt.Sprintf("Registros de ponto: %d\n", m.punchCount))
-		b.WriteString(lipgloss.NewStyle().Render("Tempo de trabalho:\n\n"))
+		b.WriteString(
+			lipgloss.NewStyle().Render("Expediente: " + m.eventMsg.timeTable + "\n"),
+		)
+		b.WriteString(fmt.Sprintf("Registros computados: %d\n", m.punchCount))
+
+		maybeTodayClock, exists := m.eventMsg.clocking[todayKey]
+
+		if exists {
+			t := tree.Root(".")
+			for _, event := range maybeTodayClock {
+				t.Child(strings.Split(event.time, ".")[0] + " " + event.platform)
+			}
+			b.WriteString(t.String() + "\n")
+		}
+
 		b.WriteString(
 			lipgloss.NewStyle().
-				Width(200).
-				Height(10).
+				Width(defaultWidth).
 				Bold(true).
 				Foreground(lipgloss.Color(clockWerkColor)).
 				PaddingLeft(2).
@@ -750,9 +795,8 @@ func (m Model) View() string {
 			b.WriteString("\nConfirma o registro de ponto?\n")
 			b.WriteString(m.punchForm.View())
 		} else {
-			b.WriteString("\nPressione SPACE para iniciar/parar o timer.")
-			b.WriteString("\nPressione E para esquecer credenciais salvas.")
-			b.WriteString("\nPressione Q para sair.")
+			b.WriteString("\n")
+			b.WriteString(m.help.View(m.keys))
 		}
 
 	case 6:

@@ -23,56 +23,109 @@ type errorResponse struct {
 	Errors  []string `json:"errors"`
 }
 
-type RequestFilter struct {
+type requestFilter struct {
 	ActivePlatformUser bool     `json:"activePlatformUser"`
-	PageInfo           PageInfo `json:"pageInfo"`
+	PageInfo           pageInfo `json:"pageInfo"`
 	NameSearch         string   `json:"nameSearch"`
-	Sort               Sort     `json:"sort"`
+	Sort               sort     `json:"sort"`
 }
 
-type PageInfo struct {
+type pageInfo struct {
 	Page     int    `json:"page"`
 	PageSize string `json:"pageSize"`
 }
 
-type Sort struct {
+type sort struct {
 	Field interface{} `json:"field"`
 	Order string      `json:"order"`
 }
 
-type ClockingEventRequest struct {
-	Filter RequestFilter `json:"filter"`
+type clockingEventRequest struct {
+	Filter requestFilter `json:"filter"`
 }
 
-type ClockingEventResponse struct {
-	Result []ClockingEvent `json:"result"`
+type clockingEventResponse struct {
+	Result []clockingEvent `json:"result"`
 }
 
-type ClockingEvent struct {
-	ID        string   `json:"id"`
-	DateEvent string   `json:"dateEvent"`
-	TimeEvent string   `json:"timeEvent"`
-	Cnpj      string   `json:"cnpj"`
-	Employee  Employee `json:"employee"`
-	Platform  string   `json:"platform"`
+type clockingEventImported struct {
+	DateEvent string `json:"dateEvent"`
+	TimeEvent string `json:"timeEvent"`
 }
 
-type Employee struct {
+type clockingResult struct {
+	EventImported clockingEventImported `json:"clockingEventImported"`
+}
+
+type postClockingEventResponse struct {
+	Result clockingResult `json:"clockingResult"`
+}
+
+type ClockingCompany struct {
+	ID         string `json:"id"`
+	ArpID      string `json:"arpId"`
+	Identifier string `json:"identifier"`
+	Caepf      string `json:"caepf"`
+	CnoNumber  string `json:"cnoNumber"`
+}
+
+type ClockingEmployee struct {
+	ID    string `json:"id"`
+	ArpID string `json:"arpId"`
+	Cpf   string `json:"cpf"`
+	Pis   string `json:"pis"`
+}
+
+type ClockingSignature struct {
+	SignatureVersion int    `json:"signatureVersion"`
+	Signature        string `json:"signature"`
+}
+
+type ClockingInfo struct {
+	Company    ClockingCompany   `json:"company"`
+	Employee   ClockingEmployee  `json:"employee"`
+	AppVersion string            `json:"appVersion"`
+	TimeZone   string            `json:"timeZone"`
+	Signature  ClockingSignature `json:"signature"`
+	Use        string            `json:"use"`
+}
+
+type ClockingRequest struct {
+	ClockingInfo ClockingInfo `json:"clockingInfo"`
+}
+
+type clockingEvent struct {
+	ID               string   `json:"id"`
+	DateEvent        string   `json:"dateEvent"`
+	TimeEvent        string   `json:"timeEvent"`
+	Cnpj             string   `json:"cnpj"`
+	Caepf            string   `json:"caepf"`
+	CnoNumber        string   `json:"cnoNumber"`
+	AppVersion       string   `json:"appVersion"`
+	TimeZone         string   `json:"timeZone"`
+	Signature        string   `json:"signature"`
+	SignatureVersion int      `json:"signatureVersion"`
+	Employee         employee `json:"employee"`
+	Platform         string   `json:"platform"`
+	Use              int      `json:"use"`
+}
+
+type employee struct {
 	ID        string  `json:"id"`
 	Name      string  `json:"name"`
 	Pis       string  `json:"pis"`
 	Shift     string  `json:"shift"`
 	Timetable string  `json:"timeTable"`
-	Company   Company `json:"company"`
+	Company   company `json:"company"`
+	ArpID     string  `json:"arpId"`
+	CpfNumber string  `json:"cpfNumber"`
 }
 
-type Company struct {
-	Cnpj string `json:"cnpj"`
-	Name string `json:"name"`
-}
-
-type ErrorResponse struct {
-	Message string `json:"message"`
+type company struct {
+	Cnpj  string `json:"cnpj"`
+	Name  string `json:"name"`
+	ID    string `json:"id"`
+	ArpID string `json:"arpId"`
 }
 
 func GatewayLogin(user, password string) (string, error) {
@@ -94,6 +147,7 @@ func GatewayLogin(user, password string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("erro ao criar requisição: %w", err)
 	}
+
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -126,16 +180,16 @@ func GatewayLogin(user, password string) (string, error) {
 	}
 }
 
-func GetClockingEvents(token string) ([]ClockingEvent, error) {
-	requestBody := ClockingEventRequest{
-		Filter: RequestFilter{
+func GetClockingEvents(token string) ([]clockingEvent, error) {
+	requestBody := clockingEventRequest{
+		Filter: requestFilter{
 			ActivePlatformUser: true,
-			PageInfo: PageInfo{
+			PageInfo: pageInfo{
 				Page:     0,
 				PageSize: "20",
 			},
 			NameSearch: "",
-			Sort: Sort{
+			Sort: sort{
 				Field: nil,
 				Order: "ASC",
 			},
@@ -156,30 +210,10 @@ func GetClockingEvents(token string) ([]ClockingEvent, error) {
 		return nil, fmt.Errorf("erro ao criar requisição: %w", err)
 	}
 
-	req.Header.Set("accept", "application/json, text/javascript, */*; q=0.01")
-	req.Header.Set("accept-language", "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7,es;q=0.6")
 	req.Header.Set("content-type", "application/json")
-	req.Header.Set("dnt", "1")
-	req.Header.Set("origin", "https://platform.senior.com.br")
-	req.Header.Set("priority", "u=1, i")
-	req.Header.Set(
-		"referer",
-		"https://platform.senior.com.br/login/?redirectTo=https%3A%2F%2Fplatform.senior.com.br%2Fsenior-x%2F",
-	)
-	req.Header.Set("sec-ch-ua", `"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"`)
-	req.Header.Set("sec-ch-ua-mobile", "?0")
-	req.Header.Set("sec-ch-ua-platform", `"Linux"`)
-	req.Header.Set("sec-fetch-dest", "empty")
-	req.Header.Set("sec-fetch-mode", "cors")
-	req.Header.Set("sec-fetch-site", "same-origin")
-	req.Header.Set(
-		"user-agent",
-		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-	)
-	req.Header.Set("x-requested-with", "XMLHttpRequest")
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao executar requisição: %w", err)
@@ -188,14 +222,14 @@ func GetClockingEvents(token string) ([]ClockingEvent, error) {
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		var response ClockingEventResponse
+		var response clockingEventResponse
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 			return nil, fmt.Errorf("erro ao decodificar resposta: %w", err)
 		}
 		return response.Result, nil
 
 	case http.StatusUnauthorized:
-		var errorResponse ErrorResponse
+		var errorResponse errorResponse
 		if err := json.NewDecoder(resp.Body).Decode(&errorResponse); err != nil {
 			return nil, fmt.Errorf("token expirado ou inválido: %w", err)
 		}
@@ -204,5 +238,80 @@ func GetClockingEvents(token string) ([]ClockingEvent, error) {
 	default:
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("erro inesperado (status %d): %s", resp.StatusCode, string(body))
+	}
+}
+
+func PostClockingEvent(token string, body ClockingRequest) (postClockingEventResponse, error) {
+	// requestBody := ClockingRequest{
+	// 	ClockingInfo: ClockingInfo{
+	// 		Company: ClockingCompany{
+	// 			ID:         "dbdfc7df-f1b9-4acd-9f31-6a95e4245196",
+	// 			ArpID:      "7d750c36-6195-43a1-831c-6a93d32cac07",
+	// 			Identifier: "77941490000155",
+	// 			Caepf:      "0",
+	// 			CnoNumber:  "0",
+	// 		},
+	// 		Employee: ClockingEmployee{
+	// 			ID:    "2c1053b0-735f-414e-997f-f2219415cc02",
+	// 			ArpID: "f7a74567-0d24-434e-97b1-4faa465fe1a4",
+	// 			Cpf:   "07403847911",
+	// 			Pis:   "19030655812",
+	// 		},
+	// 		AppVersion: "3.12.3",
+	// 		TimeZone:   "America/Sao_Paulo",
+	// 		Signature: ClockingSignature{
+	// 			SignatureVersion: 1,
+	// 			Signature:        "ZDc0NDBhYzIxMzFlMmY4YTFkNGQyNjJiM2Y4YjAxZTRmNjIxZTZhY2UxNWZlNzYwMWMyYzU0NDVkMmQ2MzIxZg==",
+	// 		},
+	// 		Use: "02",
+	// 	},
+	// }
+
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return postClockingEventResponse{}, fmt.Errorf("erro ao serializar dados: %w", err)
+	}
+
+	req, err := http.NewRequest(
+		"POST",
+		"https://platform.senior.com.br/t/senior.com.br/bridge/1.0/rest/hcm/pontomobile_clocking_event/actions/clockingEventImportByBrowser",
+		bytes.NewBuffer(jsonBody),
+	)
+	if err != nil {
+		return postClockingEventResponse{}, fmt.Errorf("erro ao criar requisição: %w", err)
+	}
+
+	req.Header.Set("content-type", "application/json")
+	req.Header.Set("authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return postClockingEventResponse{}, fmt.Errorf("erro ao executar requisição: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var result postClockingEventResponse
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return postClockingEventResponse{}, fmt.Errorf("erro ao decodificar resposta: %w", err)
+		}
+		return result, nil
+
+	case http.StatusUnauthorized:
+		var errorResponse errorResponse
+		if err := json.NewDecoder(resp.Body).Decode(&errorResponse); err != nil {
+			return postClockingEventResponse{}, fmt.Errorf("erro de autenticação: %w", err)
+		}
+		return postClockingEventResponse{}, fmt.Errorf("não autorizado: %s", errorResponse.Message)
+
+	default:
+		body, _ := io.ReadAll(resp.Body)
+		return postClockingEventResponse{}, fmt.Errorf(
+			"erro inesperado (status %d): %s",
+			resp.StatusCode,
+			string(body),
+		)
 	}
 }

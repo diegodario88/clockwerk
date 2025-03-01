@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,24 +17,43 @@ import (
 	"github.com/diegodario88/clockwerk/storage"
 )
 
-type doneMsg struct{}
 type tickMsg struct{}
 type failedMsg struct{ error string }
 type loginMsg struct{ token string }
 
+type postClockingMsg struct {
+	dateEvent string
+	timeEvent string
+}
+
 type eventMsg struct {
-	employeeName string
-	companyName  string
-	shift        string
-	timeTable    string
-	clocking     map[string][]clockingMsg
+	employeeName     string
+	employeeId       string
+	employeeArpId    string
+	companyName      string
+	companyId        string
+	companyArpId     string
+	cnpj             string
+	cpf              string
+	pis              string
+	caepf            string
+	cnoNumber        string
+	appVersion       string
+	timeZone         string
+	shift            string
+	timeTable        string
+	signatureVersion int
+	signature        string
+	use              int
+	clocking         map[string][]clockingMsg
 }
 
 type clockingMsg struct {
-	id       string
-	date     string
-	time     string
-	platform string
+	id        string
+	date      string
+	time      string
+	platform  string
+	eventTime time.Time
 }
 
 type Model struct {
@@ -62,11 +82,7 @@ var theme *huh.Theme = huh.ThemeBase()
 var defaultConfirm = true
 var clockWerkColor = "#E28413"
 
-func waitCmd(seconds int) tea.Cmd {
-	return tea.Tick(time.Duration(seconds)*time.Second, func(t time.Time) tea.Msg {
-		return doneMsg{}
-	})
-}
+const timeLayout = "2006-01-02 15:04:05.999"
 
 func handleAuthentication(user string, password string) tea.Cmd {
 	return func() tea.Msg {
@@ -79,7 +95,7 @@ func handleAuthentication(user string, password string) tea.Cmd {
 	}
 }
 
-func handleClockingEvent(token string) tea.Cmd {
+func handleGetClockingEvent(token string) tea.Cmd {
 	return func() tea.Msg {
 		events, err := senior.GetClockingEvents(token)
 		if err != nil {
@@ -91,21 +107,95 @@ func handleClockingEvent(token string) tea.Cmd {
 
 		grouped := make(map[string][]clockingMsg)
 		for _, event := range events {
+			parsedTime, err := time.Parse(
+				timeLayout,
+				fmt.Sprintf("%s %s", event.DateEvent, event.TimeEvent),
+			)
+
+			if err != nil {
+				return failedMsg{
+					error: fmt.Sprintf("erro parseando horário %s %s: %v",
+						event.DateEvent,
+						event.TimeEvent,
+						err),
+				}
+			}
+
 			cMsg := clockingMsg{
-				id:       event.ID,
-				date:     event.DateEvent,
-				time:     event.TimeEvent,
-				platform: event.Platform,
+				id:        event.ID,
+				date:      event.DateEvent,
+				time:      event.TimeEvent,
+				platform:  event.Platform,
+				eventTime: parsedTime,
 			}
 			grouped[cMsg.date] = append(grouped[cMsg.date], cMsg)
 		}
 
+		for date, clockings := range grouped {
+			sort.Slice(clockings, func(i, j int) bool {
+				return clockings[i].eventTime.Before(clockings[j].eventTime)
+			})
+			grouped[date] = clockings
+		}
+
 		return eventMsg{
-			employeeName: events[0].Employee.Name,
-			companyName:  events[0].Employee.Company.Name,
-			shift:        events[0].Employee.Shift,
-			timeTable:    events[0].Employee.Timetable,
-			clocking:     grouped,
+			employeeName:     events[0].Employee.Name,
+			employeeId:       events[0].Employee.ID,
+			employeeArpId:    events[0].Employee.ArpID,
+			companyName:      events[0].Employee.Company.Name,
+			companyId:        events[0].Employee.Company.ID,
+			companyArpId:     events[0].Employee.ArpID,
+			cnpj:             events[0].Employee.Company.Cnpj,
+			pis:              events[0].Employee.Pis,
+			caepf:            events[0].Caepf,
+			appVersion:       events[0].AppVersion,
+			cnoNumber:        events[0].CnoNumber,
+			timeZone:         events[0].TimeZone,
+			shift:            events[0].Employee.Shift,
+			timeTable:        events[0].Employee.Timetable,
+			signatureVersion: events[0].SignatureVersion,
+			signature:        events[0].Signature,
+			use:              events[0].Use,
+			clocking:         grouped,
+		}
+	}
+}
+
+func handlePostClockingEvent(token string, event eventMsg) tea.Cmd {
+	return func() tea.Msg {
+		cResp, err := senior.PostClockingEvent(token, senior.ClockingRequest{
+			ClockingInfo: senior.ClockingInfo{
+				Company: senior.ClockingCompany{
+					ID:         event.companyId,
+					ArpID:      event.companyArpId,
+					Identifier: event.cnpj,
+					Caepf:      event.caepf,
+					CnoNumber:  event.cnoNumber,
+				},
+				Employee: senior.ClockingEmployee{
+					ID:    event.employeeId,
+					ArpID: event.employeeArpId,
+					Cpf:   event.cpf,
+					Pis:   event.pis,
+				},
+				Signature: senior.ClockingSignature{
+					SignatureVersion: event.signatureVersion,
+					Signature:        event.signature,
+				},
+				AppVersion: event.appVersion,
+				TimeZone:   event.timeZone,
+				Use:        fmt.Sprintf("%02d", event.use),
+			},
+		})
+
+		if err != nil {
+			log.Println(err.Error())
+			return failedMsg{error: err.Error()}
+		}
+
+		return postClockingMsg{
+			dateEvent: cResp.Result.EventImported.DateEvent,
+			timeEvent: cResp.Result.EventImported.DateEvent,
 		}
 	}
 }
@@ -255,7 +345,7 @@ func (m Model) Init() tea.Cmd {
 	if m.step == 0 {
 		return m.cpfForm.Init()
 	} else if m.step == 4 {
-		return tea.Batch(handleClockingEvent(m.token), m.spinner.Tick)
+		return tea.Batch(handleGetClockingEvent(m.token), m.spinner.Tick)
 	}
 
 	return nil
@@ -348,7 +438,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					log.Printf("Erro ao salvar credenciais: %v", err)
 				}
 			}
-			return m, tea.Batch(handleClockingEvent(m.token), m.spinner.Tick)
+			return m, tea.Batch(handleGetClockingEvent(m.token), m.spinner.Tick)
 		case tea.KeyMsg:
 			switch msg.String() {
 			case "r":
@@ -380,8 +470,59 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case eventMsg:
 			m.step = 5
-			log.Println(msg)
 			m.eventMsg = msg
+			m.elapsed = 0
+			m.timerRunning = false
+			todayKey := time.Now().Local().Format("2006-01-02")
+			maybeTodayClock, exists := m.eventMsg.clocking[todayKey]
+			if exists {
+				m.punchCount = len(maybeTodayClock)
+				if len(maybeTodayClock)%2 != 0 {
+					currentTime := time.Now()
+					m.timerRunning = true
+					maybeTodayClock = append(maybeTodayClock, clockingMsg{
+						date: currentTime.Format("2006-01-02"),
+						time: currentTime.Format("15:04:05.999"),
+					})
+				}
+
+				for i := 0; i < len(maybeTodayClock)-1; i += 2 {
+					startTime, err := time.Parse(
+						timeLayout,
+						fmt.Sprintf("%s %s", maybeTodayClock[i].date, maybeTodayClock[i].time),
+					)
+					if err != nil {
+						log.Printf("Erro entrada: %v | Dado: %s %s",
+							err,
+							maybeTodayClock[i].date,
+							maybeTodayClock[i].time,
+						)
+						return m, nil
+					}
+
+					endTime, err := time.Parse(
+						timeLayout,
+						fmt.Sprintf("%s %s", maybeTodayClock[i+1].date, maybeTodayClock[i+1].time),
+					)
+					if err != nil {
+						log.Printf("Erro saída: %v | Dado: %s %s",
+							err,
+							maybeTodayClock[i+1].date,
+							maybeTodayClock[i+1].time,
+						)
+						return m, nil
+					}
+
+					m.elapsed += endTime.Sub(startTime)
+				}
+			}
+
+			if m.timerRunning {
+				return m, tea.Batch(cmd, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+					m.tickScheduled = false
+					return tickMsg{}
+				}))
+			}
 			return m, nil
 		case tea.KeyMsg:
 			switch msg.String() {
@@ -426,11 +567,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = c
 			if m.punchForm.State == huh.StateCompleted {
 				if m.punchForm.GetBool("confirm") {
-					// Se confirmado, Inicie aqui um spinner para simular um HTTP POST.
-					// Se tudo ocorrer bem, alterna o estado do timer e registra a batida.
 					m.step = 6
 					m.punchForm = nil
-					return m, tea.Batch(waitCmd(1), m.spinner.Tick)
+					return m, tea.Batch(
+						handlePostClockingEvent(m.token, m.eventMsg),
+						m.spinner.Tick,
+					)
 				} else {
 					m.punchForm = nil
 					if m.timerRunning {
@@ -464,23 +606,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} })
 			}
 			return m, nil
+		case failedMsg:
+			m.step = 4
+			m.failedMsg = msg
+			return m, nil
 		}
 		return m, nil
 
 	case 6:
 		m.spinner, cmd = m.spinner.Update(msg)
 		switch msg.(type) {
-		case doneMsg:
-			m.step = 5
-			m.timerRunning = !m.timerRunning
-			m.punchCount++
-			if m.timerRunning {
-				return m, tea.Batch(cmd, tea.Tick(time.Second, func(t time.Time) tea.Msg {
-					m.tickScheduled = false
-					return tickMsg{}
-				}))
-			}
-			return m, nil
+		case postClockingMsg:
+			m.step = 4
+			return m, tea.Batch(handleGetClockingEvent(m.token), m.spinner.Tick)
 		}
 		return m, cmd
 

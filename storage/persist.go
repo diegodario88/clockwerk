@@ -25,7 +25,7 @@ type EncryptedData struct {
 func SaveCredentials(creds UserCredentials) error {
 	jsonData, err := json.Marshal(creds)
 	if err != nil {
-		log.Printf("Erro ao serializar credenciais: %v", err)
+		log.Println("Erro ao serializar credenciais: %v", err)
 		return fmt.Errorf("erro ao serializar credenciais: %v", err)
 	}
 
@@ -116,7 +116,7 @@ func DeleteCredentials() error {
 func getCredentialsFilePath() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		log.Printf("Erro ao obter diretório do usuário: %v", err)
+		log.Println("Erro ao obter diretório do usuário: %v", err)
 		return "clockwerk_credentials.enc"
 	}
 	return filepath.Join(homeDir, ".clockwerk_credentials.enc")

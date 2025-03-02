@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -136,6 +137,7 @@ func GatewayLogin(user, password string) (string, error) {
 
 	jsonBody, err := json.Marshal(requestBody)
 	if err != nil {
+		log.Println("Erro ao serializar dados: %w", err)
 		return "", fmt.Errorf("erro ao serializar dados: %w", err)
 	}
 
@@ -145,6 +147,7 @@ func GatewayLogin(user, password string) (string, error) {
 		bytes.NewBuffer(jsonBody),
 	)
 	if err != nil {
+		log.Println("Erro ao criar requisição: %w", err)
 		return "", fmt.Errorf("erro ao criar requisição: %w", err)
 	}
 
@@ -153,6 +156,7 @@ func GatewayLogin(user, password string) (string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Println("Erro ao executar requisição: %w", err)
 		return "", fmt.Errorf("erro ao executar requisição: %w", err)
 	}
 	defer resp.Body.Close()
@@ -161,6 +165,7 @@ func GatewayLogin(user, password string) (string, error) {
 	case http.StatusOK:
 		var successResponse loginResponse
 		if err := json.NewDecoder(resp.Body).Decode(&successResponse); err != nil {
+			log.Println("Erro ao decodificar resposta: %w", err)
 			return "", fmt.Errorf("erro ao decodificar resposta: %w", err)
 		}
 		return successResponse.Token, nil
@@ -170,6 +175,7 @@ func GatewayLogin(user, password string) (string, error) {
 	case http.StatusUnprocessableEntity:
 		var errorResponse errorResponse
 		if err := json.NewDecoder(resp.Body).Decode(&errorResponse); err != nil {
+			log.Println("Erro ao decodificar resposta de erro: %w", err)
 			return "", fmt.Errorf("erro ao decodificar resposta de erro: %w", err)
 		}
 		return "", fmt.Errorf("%s", errorResponse.Message)
@@ -198,6 +204,7 @@ func GetClockingEvents(token string) ([]clockingEvent, error) {
 
 	jsonBody, err := json.Marshal(requestBody)
 	if err != nil {
+		log.Println("Erro ao serializar dados: %w", err)
 		return nil, fmt.Errorf("erro ao serializar dados: %w", err)
 	}
 
@@ -207,6 +214,7 @@ func GetClockingEvents(token string) ([]clockingEvent, error) {
 		bytes.NewBuffer(jsonBody),
 	)
 	if err != nil {
+		log.Println("Erro ao criar requisição: %w", err)
 		return nil, fmt.Errorf("erro ao criar requisição: %w", err)
 	}
 
@@ -216,6 +224,7 @@ func GetClockingEvents(token string) ([]clockingEvent, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Println("Erro ao executar requisição: %w", err)
 		return nil, fmt.Errorf("erro ao executar requisição: %w", err)
 	}
 	defer resp.Body.Close()
@@ -224,6 +233,7 @@ func GetClockingEvents(token string) ([]clockingEvent, error) {
 	case http.StatusOK:
 		var response clockingEventResponse
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			log.Println("Erro ao decodificar resposta: %w", err)
 			return nil, fmt.Errorf("erro ao decodificar resposta: %w", err)
 		}
 		return response.Result, nil
@@ -231,6 +241,7 @@ func GetClockingEvents(token string) ([]clockingEvent, error) {
 	case http.StatusUnauthorized:
 		var errorResponse errorResponse
 		if err := json.NewDecoder(resp.Body).Decode(&errorResponse); err != nil {
+			log.Println("Erro ao decodificar resposta de erro: %w", err)
 			return nil, fmt.Errorf("token expirado ou inválido: %w", err)
 		}
 		return nil, fmt.Errorf("autorização falhou: %s", errorResponse.Message)
@@ -242,33 +253,9 @@ func GetClockingEvents(token string) ([]clockingEvent, error) {
 }
 
 func PostClockingEvent(token string, body ClockingRequest) (postClockingEventResponse, error) {
-	// requestBody := ClockingRequest{
-	// 	ClockingInfo: ClockingInfo{
-	// 		Company: ClockingCompany{
-	// 			ID:         "dbdfc7df-f1b9-4acd-9f31-6a95e4245196",
-	// 			ArpID:      "7d750c36-6195-43a1-831c-6a93d32cac07",
-	// 			Identifier: "77941490000155",
-	// 			Caepf:      "0",
-	// 			CnoNumber:  "0",
-	// 		},
-	// 		Employee: ClockingEmployee{
-	// 			ID:    "2c1053b0-735f-414e-997f-f2219415cc02",
-	// 			ArpID: "f7a74567-0d24-434e-97b1-4faa465fe1a4",
-	// 			Cpf:   "07403847911",
-	// 			Pis:   "19030655812",
-	// 		},
-	// 		AppVersion: "3.12.3",
-	// 		TimeZone:   "America/Sao_Paulo",
-	// 		Signature: ClockingSignature{
-	// 			SignatureVersion: 1,
-	// 			Signature:        "ZDc0NDBhYzIxMzFlMmY4YTFkNGQyNjJiM2Y4YjAxZTRmNjIxZTZhY2UxNWZlNzYwMWMyYzU0NDVkMmQ2MzIxZg==",
-	// 		},
-	// 		Use: "02",
-	// 	},
-	// }
-
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
+		log.Println("Erro ao serializar dados: %w", err)
 		return postClockingEventResponse{}, fmt.Errorf("erro ao serializar dados: %w", err)
 	}
 
@@ -278,6 +265,7 @@ func PostClockingEvent(token string, body ClockingRequest) (postClockingEventRes
 		bytes.NewBuffer(jsonBody),
 	)
 	if err != nil {
+		log.Println("Erro ao criar requisição: %w", err)
 		return postClockingEventResponse{}, fmt.Errorf("erro ao criar requisição: %w", err)
 	}
 
@@ -287,6 +275,7 @@ func PostClockingEvent(token string, body ClockingRequest) (postClockingEventRes
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Println("Erro ao executar requisição: %w", err)
 		return postClockingEventResponse{}, fmt.Errorf("erro ao executar requisição: %w", err)
 	}
 	defer resp.Body.Close()
@@ -295,6 +284,7 @@ func PostClockingEvent(token string, body ClockingRequest) (postClockingEventRes
 	case http.StatusOK:
 		var result postClockingEventResponse
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			log.Println("Erro ao decodificar resposta: %w", err)
 			return postClockingEventResponse{}, fmt.Errorf("erro ao decodificar resposta: %w", err)
 		}
 		return result, nil
@@ -302,6 +292,7 @@ func PostClockingEvent(token string, body ClockingRequest) (postClockingEventRes
 	case http.StatusUnauthorized:
 		var errorResponse errorResponse
 		if err := json.NewDecoder(resp.Body).Decode(&errorResponse); err != nil {
+			log.Println("Erro de autenticação: %w", err)
 			return postClockingEventResponse{}, fmt.Errorf("erro de autenticação: %w", err)
 		}
 		return postClockingEventResponse{}, fmt.Errorf("não autorizado: %s", errorResponse.Message)

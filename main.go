@@ -138,6 +138,9 @@ func handleGetClockingEvent(token string) tea.Cmd {
 	return func() tea.Msg {
 		events, err := senior.GetClockingEvents(token)
 		if err != nil {
+			log.Println(events)
+			log.Println(err)
+			log.Println("token", token)
 			return failedMsg{error: err.Error()}
 		}
 		if len(events) == 0 {
@@ -471,6 +474,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case loginMsg:
 			m.loginMsg = msg
 			m.step = 4
+			m.token = msg.token
 			m.failedMsg = failedMsg{error: ""}
 
 			if m.keepLogged {

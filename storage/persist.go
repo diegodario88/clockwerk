@@ -25,7 +25,7 @@ type EncryptedData struct {
 func SaveCredentials(creds UserCredentials) error {
 	jsonData, err := json.Marshal(creds)
 	if err != nil {
-		log.Println("Erro ao serializar credenciais: %v", err)
+		log.Println("Erro ao serializar credenciais: %w", err)
 		return fmt.Errorf("erro ao serializar credenciais: %v", err)
 	}
 
@@ -33,7 +33,7 @@ func SaveCredentials(creds UserCredentials) error {
 
 	ciphertext, iv, err := security.Encrypt(jsonData, key)
 	if err != nil {
-		log.Println("Erro ao realizar encrypt: %v", err)
+		log.Println("Erro ao realizar encrypt: %w", err)
 		return fmt.Errorf("erro ao criptografar: %v", err)
 	}
 
@@ -44,13 +44,13 @@ func SaveCredentials(creds UserCredentials) error {
 
 	encJson, err := json.Marshal(encData)
 	if err != nil {
-		log.Println("Erro ao serializar dados criptografados: %v", err)
+		log.Println("Erro ao serializar dados criptografados: %w", err)
 		return fmt.Errorf("erro ao serializar dados criptografados: %v", err)
 	}
 
 	err = os.WriteFile(getCredentialsFilePath(), encJson, 0600) // Permissão apenas para o usuário
 	if err != nil {
-		log.Println("Erro ao salvar arquivo de credenciais: %v", err)
+		log.Println("Erro ao salvar arquivo de credenciais: %w", err)
 		return fmt.Errorf("erro ao salvar arquivo de credenciais: %v", err)
 	}
 
@@ -71,19 +71,19 @@ func LoadCredentials() (UserCredentials, error) {
 
 	var encData EncryptedData
 	if err := json.Unmarshal(data, &encData); err != nil {
-		log.Println("Erro ao desserializar dados criptografados: %v", err)
+		log.Println("Erro ao desserializar dados criptografados: %w", err)
 		return creds, fmt.Errorf("erro ao desserializar dados criptografados: %v", err)
 	}
 
 	ciphertext, err := base64.StdEncoding.DecodeString(encData.Data)
 	if err != nil {
-		log.Println("Erro ao decodificar ciphertext: %v", err)
+		log.Println("Erro ao decodificar ciphertext: %w", err)
 		return creds, fmt.Errorf("erro ao decodificar ciphertext: %v", err)
 	}
 
 	iv, err := base64.StdEncoding.DecodeString(encData.IV)
 	if err != nil {
-		log.Println("Erro ao decodificar IV: %v", err)
+		log.Println("Erro ao decodificar IV: %w", err)
 		return creds, fmt.Errorf("erro ao decodificar IV: %v", err)
 	}
 
@@ -91,12 +91,12 @@ func LoadCredentials() (UserCredentials, error) {
 
 	plaintext, err := security.Decrypt(ciphertext, key, iv)
 	if err != nil {
-		log.Println("Erro ao descriptografar: %v", err)
+		log.Println("Erro ao descriptografar: %w", err)
 		return creds, fmt.Errorf("erro ao descriptografar: %v", err)
 	}
 
 	if err := json.Unmarshal(plaintext, &creds); err != nil {
-		log.Println("Erro ao desserializar credenciais: %v", err)
+		log.Println("Erro ao desserializar credenciais: %w", err)
 		return creds, fmt.Errorf("erro ao desserializar credenciais: %v", err)
 	}
 
@@ -107,7 +107,7 @@ func DeleteCredentials() error {
 	filePath := getCredentialsFilePath()
 	err := os.Remove(filePath)
 	if err != nil && !os.IsNotExist(err) {
-		log.Println("Erro ao remover arquivo de credenciais: %v", err)
+		log.Println("Erro ao remover arquivo de credenciais: %w", err)
 		return fmt.Errorf("erro ao remover arquivo de credenciais: %v", err)
 	}
 	return nil
@@ -116,7 +116,7 @@ func DeleteCredentials() error {
 func getCredentialsFilePath() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		log.Println("Erro ao obter diretório do usuário: %v", err)
+		log.Println("Erro ao obter diretório do usuário: %w", err)
 		return "clockwerk_credentials.enc"
 	}
 	return filepath.Join(homeDir, ".clockwerk_credentials.enc")

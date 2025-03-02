@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -760,18 +761,22 @@ func (m Model) View() string {
 				"\n\n",
 		)
 		b.WriteString(
-			lipgloss.NewStyle().Render("Colaborador: " + m.eventMsg.employeeName + "\n"),
+			lipgloss.NewStyle().
+				Render(" Colaborador: " + m.eventMsg.employeeName + "\n"),
 		)
 		b.WriteString(
-			lipgloss.NewStyle().Render("Empresa: " + m.eventMsg.companyName + "\n"),
+			lipgloss.NewStyle().
+				Render(" Empresa:     " + m.eventMsg.companyName + "\n"),
 		)
 		b.WriteString(
-			lipgloss.NewStyle().Render("Data atual: " + now.Local().Format("02/01/2006") + "\n"),
+			lipgloss.NewStyle().Render(" Data atual:  " + now.Local().Format("02/01/2006") + "\n"),
 		)
 		b.WriteString(
-			lipgloss.NewStyle().Render("Expediente: " + m.eventMsg.timeTable + "\n"),
+			lipgloss.NewStyle().Render(" Expediente:  " + m.eventMsg.timeTable + "\n"),
 		)
-		b.WriteString(fmt.Sprintf("Registros computados: %d\n", m.punchCount))
+		b.WriteString(
+			lipgloss.NewStyle().Render(" Registros:   " + strconv.Itoa(m.punchCount) + "\n"),
+		)
 
 		maybeTodayClock, exists := m.eventMsg.clocking[todayKey]
 
@@ -780,7 +785,11 @@ func (m Model) View() string {
 			for _, event := range maybeTodayClock {
 				t.Child(strings.Split(event.time, ".")[0] + " " + event.platform)
 			}
-			b.WriteString(t.String() + "\n")
+			b.WriteString(
+				lipgloss.NewStyle().
+					PaddingLeft(2).
+					Render(t.String() + "\n"),
+			)
 		}
 
 		b.WriteString(
@@ -789,7 +798,7 @@ func (m Model) View() string {
 				Bold(true).
 				Foreground(lipgloss.Color(clockWerkColor)).
 				PaddingLeft(2).
-				Render(figure.NewFigure(timeStr, "starwars", true).String() + "\n"),
+				Render("\n" + figure.NewFigure(timeStr, "starwars", true).String() + "\n"),
 		)
 
 		if m.forgetForm != nil {

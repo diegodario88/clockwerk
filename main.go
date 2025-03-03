@@ -17,8 +17,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/tree"
 	"github.com/common-nighthawk/go-figure"
+	"github.com/diegodario88/clockwerk/config"
 	"github.com/diegodario88/clockwerk/senior"
 	"github.com/diegodario88/clockwerk/storage"
+	"github.com/diegodario88/clockwerk/ui"
 )
 
 type keyMap struct {
@@ -115,15 +117,6 @@ type Model struct {
 	keys           keyMap
 }
 
-var theme *huh.Theme = huh.ThemeBase()
-var defaultConfirm = true
-var todayKey = time.Now().Local().Format("2006-01-02")
-
-const clockWerkColor = "#E28413"
-const timeLayout = "2006-01-02 15:04:05.999 -07:00"
-
-const defaultWidth = 80
-
 func handleAuthentication(user string, password string) tea.Cmd {
 	return func() tea.Msg {
 		token, err := senior.GatewayLogin(user, password)
@@ -139,9 +132,6 @@ func handleGetClockingEvent(token string) tea.Cmd {
 	return func() tea.Msg {
 		events, err := senior.GetClockingEvents(token)
 		if err != nil {
-			log.Println(events)
-			log.Println(err)
-			log.Println("token", token)
 			return failedMsg{error: err.Error()}
 		}
 		if len(events) == 0 {
@@ -153,7 +143,7 @@ func handleGetClockingEvent(token string) tea.Cmd {
 			timeStr := fmt.Sprintf("%s %s %s", event.DateEvent, event.TimeEvent, event.TimeZone)
 
 			parsedTime, err := time.Parse(
-				timeLayout,
+				config.TimeLayout,
 				timeStr,
 			)
 
@@ -245,107 +235,12 @@ func handlePostClockingEvent(token string, event eventMsg) tea.Cmd {
 	}
 }
 
-func newCPFForm(initialValue string) *huh.Form {
-	validateCPF := func(s string) error {
-		if len(s) != 11 {
-			return fmt.Errorf("CPF deve conter 11 dígitos")
-		}
-		for _, c := range s {
-			if c < '0' || c > '9' {
-				return fmt.Errorf("Apenas números permitidos")
-			}
-		}
-		return nil
-	}
-	cpfInput := huh.NewInput().
-		Key("cpf").
-		Title("CPF").
-		Placeholder("Digite").
-		Value(&initialValue).
-		CharLimit(11).
-		Validate(validateCPF)
-	nextConfirm0 := huh.NewConfirm().
-		Value(&defaultConfirm).
-		Key("next").
-		Affirmative("Prosseguir").
-		Negative("")
-	return huh.NewForm(
-		huh.NewGroup(cpfInput, nextConfirm0),
-	).WithWidth(defaultWidth).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
-}
-
-func newPasswordForm(initialValue string) *huh.Form {
-	passwordInput := huh.NewInput().
-		Key("password").
-		Title("Senha").
-		Placeholder("Digite sua senha").
-		Value(&initialValue).
-		Validate(func(s string) error {
-			if len(s) < 3 {
-				return fmt.Errorf("Password deve conter 3 ou mais caracteres")
-			}
-			return nil
-		}).
-		EchoMode(huh.EchoModePassword)
-	nextConfirm1 := huh.NewConfirm().
-		Key("next").
-		Value(&defaultConfirm).
-		Negative("Voltar").
-		Affirmative("Prosseguir")
-	return huh.NewForm(
-		huh.NewGroup(passwordInput, nextConfirm1),
-	).WithWidth(defaultWidth).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
-}
-
-func newKeepForm(initialValue bool) *huh.Form {
-	keepConfirm := huh.NewConfirm().
-		Key("keep").
-		Title("Deseja se manter logado?").
-		Value(&initialValue).
-		Affirmative("Sim").
-		Negative("Não")
-	proceedConfirm := huh.NewConfirm().
-		Key("next").
-		Value(&defaultConfirm).
-		Affirmative("Prosseguir").
-		Negative("Voltar")
-	return huh.NewForm(
-		huh.NewGroup(keepConfirm, proceedConfirm),
-	).WithWidth(defaultWidth).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
-}
-
-func newPunchConfirmForm() *huh.Form {
-	defaultValue := true
-	confirm := huh.NewConfirm().
-		Key("confirm").
-		Title("Bater o ponto?").
-		Value(&defaultValue).
-		Affirmative("Sim").
-		Negative("Cancelar")
-	return huh.NewForm(
-		huh.NewGroup(confirm),
-	).WithWidth(defaultWidth).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
-}
-
-func newForgetForm() *huh.Form {
-	defaultValue := false
-	confirm := huh.NewConfirm().
-		Key("confirm").
-		Title("Deseja esquecer suas credenciais?").
-		Value(&defaultValue).
-		Affirmative("Sim").
-		Negative("Não")
-	return huh.NewForm(
-		huh.NewGroup(confirm),
-	).WithWidth(defaultWidth).WithShowHelp(true).WithShowErrors(true).WithTheme(theme)
-}
-
 func NewModel() Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Points
 	sp.Style = lipgloss.NewStyle().
 		PaddingLeft(1).
-		Foreground(lipgloss.Color(clockWerkColor))
+		Foreground(lipgloss.Color(config.ClockWerkColor))
 
 	helpModel := help.New()
 
@@ -367,9 +262,9 @@ func NewModel() Model {
 		cpf:          initialCPF,
 		password:     initialPassword,
 		token:        initialToken,
-		cpfForm:      newCPFForm(initialCPF),
-		passwordForm: newPasswordForm(initialPassword),
-		keepForm:     newKeepForm(true),
+		cpfForm:      ui.NewCPFForm(initialCPF),
+		passwordForm: ui.NewPasswordForm(initialPassword),
+		keepForm:     ui.NewKeepForm(true),
 		punchForm:    nil,
 		forgetForm:   nil,
 		spinner:      sp,
@@ -385,10 +280,10 @@ func NewModel() Model {
 func (m Model) Init() tea.Cmd {
 	tea.SetWindowTitle("Clockwerk")
 
-	theme.Focused.Base = lipgloss.NewStyle().
+	config.Theme.Focused.Base = lipgloss.NewStyle().
 		PaddingLeft(1).
 		BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(lipgloss.Color(clockWerkColor)).
+		BorderForeground(lipgloss.Color(config.ClockWerkColor)).
 		BorderLeft(true)
 
 	if m.step == 0 {
@@ -420,7 +315,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.cpfForm.State == huh.StateCompleted {
 			m.cpf = m.cpfForm.GetString("cpf")
 			m.step = 1
-			m.passwordForm = newPasswordForm(m.passwordForm.GetString("password"))
+			m.passwordForm = ui.NewPasswordForm(m.passwordForm.GetString("password"))
 			return m, m.passwordForm.Init()
 		}
 		return m, cmd
@@ -434,12 +329,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.passwordForm.State == huh.StateCompleted {
 			if !m.passwordForm.GetBool("next") {
 				m.step = 0
-				m.cpfForm = newCPFForm(m.cpfForm.GetString("cpf"))
+				m.cpfForm = ui.NewCPFForm(m.cpfForm.GetString("cpf"))
 				return m, m.cpfForm.Init()
 			}
 			m.password = m.passwordForm.GetString("password")
 			m.step = 2
-			m.keepForm = newKeepForm(m.keepLogged)
+			m.keepForm = ui.NewKeepForm(m.keepLogged)
 			return m, m.keepForm.Init()
 		}
 		return m, cmd
@@ -453,7 +348,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.keepForm.State == huh.StateCompleted {
 			if !m.keepForm.GetBool("next") {
 				m.step = 1
-				m.passwordForm = newPasswordForm(m.passwordForm.GetString("password"))
+				m.passwordForm = ui.NewPasswordForm(m.passwordForm.GetString("password"))
 				m.keepLogged = m.keepForm.GetBool("keep")
 				return m, m.passwordForm.Init()
 			}
@@ -496,7 +391,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "R":
 				if m.failedMsg.error != "" {
 					m.step = 0
-					m.cpfForm = newCPFForm(m.cpfForm.GetString("cpf"))
+					m.cpfForm = ui.NewCPFForm(m.cpfForm.GetString("cpf"))
 					return m, m.cpfForm.Init()
 				}
 			}
@@ -523,15 +418,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.eventMsg = msg
 			m.elapsed = 0
 			m.timerRunning = false
-			maybeTodayClock, exists := m.eventMsg.clocking[todayKey]
+			maybeTodayClock, exists := m.eventMsg.clocking[config.TodayKey]
 			if exists {
 				m.punchCount = len(maybeTodayClock)
 				if len(maybeTodayClock)%2 != 0 {
 					m.timerRunning = true
 					loc := time.FixedZone("UTC-3", -3*3600)
 					nowInUTC3 := time.Now().In(loc)
-					formatted := nowInUTC3.Format(timeLayout)
-					parsedTime, err := time.ParseInLocation(timeLayout, formatted, loc)
+					formatted := nowInUTC3.Format(config.TimeLayout)
+					parsedTime, err := time.ParseInLocation(config.TimeLayout, formatted, loc)
 					if err != nil {
 						log.Println("Erro ao parsear o tempo:", err)
 					}
@@ -559,7 +454,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "R":
 				if m.failedMsg.error != "" {
 					m.step = 0
-					m.cpfForm = newCPFForm(m.cpfForm.GetString("cpf"))
+					m.cpfForm = ui.NewCPFForm(m.cpfForm.GetString("cpf"))
 					return m, m.cpfForm.Init()
 				}
 			}
@@ -619,11 +514,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case key.Matches(msg, m.keys.Punch):
 				// Ao pressionar SPACE e sem formulário ativo, dispara o formulário de confirmação.
-				m.punchForm = newPunchConfirmForm()
+				m.punchForm = ui.NewPunchConfirmForm()
 				return m, m.punchForm.Init()
 			case key.Matches(msg, m.keys.ForgetCreds):
 				// Ao pressionar E, dispara o formulário para esquecer credenciais
-				m.forgetForm = newForgetForm()
+				m.forgetForm = ui.NewForgetForm()
 				return m, m.forgetForm.Init()
 			case key.Matches(msg, m.keys.Quit):
 				return m, tea.Quit
@@ -702,7 +597,7 @@ func (m Model) View() string {
 				lipgloss.NewStyle().
 					PaddingLeft(2).
 					Blink(true).
-					Foreground(lipgloss.Color(clockWerkColor)).
+					Foreground(lipgloss.Color(config.ClockWerkColor)).
 					Render(
 						"¯\\_(ツ)_/¯",
 					) + "\n\n",
@@ -736,7 +631,7 @@ func (m Model) View() string {
 				lipgloss.NewStyle().
 					PaddingLeft(2).
 					Blink(true).
-					Foreground(lipgloss.Color(clockWerkColor)).
+					Foreground(lipgloss.Color(config.ClockWerkColor)).
 					Render(
 						"¯\\_(ツ)_/¯",
 					) + "\n\n",
@@ -756,7 +651,7 @@ func (m Model) View() string {
 		b.WriteString(
 			lipgloss.NewStyle().
 				Bold(true).
-				Width(defaultWidth).
+				Width(config.DefaultWidth).
 				Render("Registro de Ponto - Clockwerk") +
 				"\n\n",
 		)
@@ -778,7 +673,7 @@ func (m Model) View() string {
 			lipgloss.NewStyle().Render(" Registros:   " + strconv.Itoa(m.punchCount) + "\n"),
 		)
 
-		maybeTodayClock, exists := m.eventMsg.clocking[todayKey]
+		maybeTodayClock, exists := m.eventMsg.clocking[config.TodayKey]
 
 		if exists {
 			t := tree.Root(".")
@@ -794,9 +689,9 @@ func (m Model) View() string {
 
 		b.WriteString(
 			lipgloss.NewStyle().
-				Width(defaultWidth).
+				Width(config.DefaultWidth).
 				Bold(true).
-				Foreground(lipgloss.Color(clockWerkColor)).
+				Foreground(lipgloss.Color(config.ClockWerkColor)).
 				PaddingLeft(2).
 				Render("\n" + figure.NewFigure(timeStr, "starwars", true).String() + "\n"),
 		)

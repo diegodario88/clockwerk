@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/diegodario88/clockwerk/config"
 )
 
@@ -80,24 +81,52 @@ func NewPunchConfirmForm() *huh.Form {
 	defaultValue := true
 	confirm := huh.NewConfirm().
 		Key("confirm").
-		Title("Bater o ponto?").
+		Title(
+			lipgloss.NewStyle().
+				Bold(true).
+				Render("Deseja bater o ponto?"),
+		).
+		Description(
+			lipgloss.NewStyle().
+				Italic(true).
+				Render("Ao confirmar, enviaremos uma http request para senior"),
+		).
 		Value(&defaultValue).
 		Affirmative("Sim").
 		Negative("Cancelar")
+
 	return huh.NewForm(
 		huh.NewGroup(confirm),
-	).WithWidth(config.DefaultWidth).WithShowHelp(true).WithShowErrors(true).WithTheme(config.Theme)
+	).
+		WithWidth(config.DefaultWidth).
+		WithShowHelp(true).
+		WithShowErrors(true).
+		WithTheme(config.Theme)
 }
 
 func NewForgetForm() *huh.Form {
 	defaultValue := false
 	confirm := huh.NewConfirm().
 		Key("confirm").
-		Title("Deseja esquecer suas credenciais?").
+		Title(
+			lipgloss.NewStyle().
+				Bold(true).
+				Render("Deseja esquecer suas credenciais?"),
+		).
+		Description(
+			lipgloss.NewStyle().
+				Italic(true).
+				Render("Ao confirmar, todas as informações de login serão deletadas"),
+		).
 		Value(&defaultValue).
 		Affirmative("Sim").
 		Negative("Não")
+
 	return huh.NewForm(
 		huh.NewGroup(confirm),
-	).WithWidth(config.DefaultWidth).WithShowHelp(true).WithShowErrors(true).WithTheme(config.Theme)
+	).
+		WithWidth(config.DefaultWidth).
+		WithShowHelp(true).
+		WithShowErrors(true).
+		WithTheme(config.Theme)
 }

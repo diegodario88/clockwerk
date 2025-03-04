@@ -11,12 +11,15 @@ require (
 
 require (
 	github.com/catppuccin/go v0.2.0 // indirect
+	github.com/charmbracelet/harmonica v0.2.0 // indirect
 	github.com/charmbracelet/x/exp/strings v0.0.0-20240722160745-212f7b056ed0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/lrstanley/bubblezone v0.0.0-20240914071701-b48c55a5e78e // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 )
 
 require (
+	github.com/NimbleMarkets/ntcharts v0.3.1
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/huh v0.6.0
@@ -33,5 +36,5 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	golang.org/x/sync v0.11.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect
-	golang.org/x/text v0.18.0 // indirect
+	golang.org/x/text v0.20.0 // indirect
 )

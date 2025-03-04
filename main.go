@@ -3,12 +3,14 @@ package main
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/NimbleMarkets/ntcharts/barchart"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -27,31 +29,63 @@ type keyMap struct {
 	Punch       key.Binding
 	ForgetCreds key.Binding
 	Quit        key.Binding
+	MoveBack    key.Binding
+	MoveForward key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Punch, k.ForgetCreds, k.Quit}
+	return []key.Binding{
+		k.MoveBack,
+		k.MoveForward,
+		k.Punch,
+		k.ForgetCreds,
+		k.Quit,
+	}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Punch, k.ForgetCreds, k.Quit},
+		{
+			k.MoveBack,
+			k.MoveForward,
+			k.Punch,
+			k.ForgetCreds,
+			k.Quit,
+		},
 	}
 }
 
 var keys = keyMap{
+	MoveBack: key.NewBinding(
+		key.WithKeys("left", "h"),
+		key.WithHelp("←/h", "Anterior"),
+	),
+	MoveForward: key.NewBinding(
+		key.WithKeys("right", "l", "tab"),
+		key.WithHelp("→/l", "Próxima"),
+	),
 	Punch: key.NewBinding(
 		key.WithKeys(" "),
-		key.WithHelp("<space>", "Bater o ponto"),
+		key.WithHelp("<space>", "Ponto"),
 	),
 	ForgetCreds: key.NewBinding(
 		key.WithKeys("e", "E"),
-		key.WithHelp("<e>", "Esquecer credenciais"),
+		key.WithHelp("<e>", "Esquecer"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c"),
 		key.WithHelp("<ctrl+c>", "Sair"),
 	),
+}
+
+type customHelp []key.Binding
+
+func (c customHelp) ShortHelp() []key.Binding {
+	return []key.Binding(c)
+}
+
+func (c customHelp) FullHelp() [][]key.Binding {
+	return [][]key.Binding{c}
 }
 
 type tickMsg struct{}
@@ -96,6 +130,7 @@ type clockingMsg struct {
 type Model struct {
 	step           int
 	punchCount     int
+	activeTab      int
 	keepLogged     bool
 	timerRunning   bool
 	tickScheduled  bool
@@ -115,6 +150,13 @@ type Model struct {
 	elapsed        time.Duration
 	help           help.Model
 	keys           keyMap
+}
+
+func formatHoursAsHHMM(hours float64) string {
+	totalMinutes := int(math.Round(hours * 60))
+	h := totalMinutes / 60
+	m := totalMinutes % 60
+	return fmt.Sprintf("%dh%02dm", h, m)
 }
 
 func handleAuthentication(user string, password string) tea.Cmd {
@@ -274,6 +316,7 @@ func NewModel() Model {
 		keepLogged:   true,
 		help:         helpModel,
 		keys:         keys,
+		activeTab:    0,
 	}
 }
 
@@ -463,7 +506,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case 5:
 		// Tratamento para o formulário de esquecer credenciais
-		if m.forgetForm != nil {
+		if m.forgetForm != nil && m.activeTab == 0 {
 			updatedForm, c := m.forgetForm.Update(msg)
 			if f, ok := updatedForm.(*huh.Form); ok {
 				m.forgetForm = f
@@ -482,7 +525,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Tratamento para o formulário de confirmação de ponto
-		if m.punchForm != nil {
+		if m.punchForm != nil && m.activeTab == 0 {
 			updatedForm, c := m.punchForm.Update(msg)
 			if f, ok := updatedForm.(*huh.Form); ok {
 				m.punchForm = f
@@ -513,13 +556,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyMsg:
 			switch {
 			case key.Matches(msg, m.keys.Punch):
-				// Ao pressionar SPACE e sem formulário ativo, dispara o formulário de confirmação.
+				if m.activeTab != 0 {
+					return m, nil
+				}
 				m.punchForm = ui.NewPunchConfirmForm()
 				return m, m.punchForm.Init()
 			case key.Matches(msg, m.keys.ForgetCreds):
-				// Ao pressionar E, dispara o formulário para esquecer credenciais
+				if m.activeTab != 0 {
+					return m, nil
+				}
 				m.forgetForm = ui.NewForgetForm()
 				return m, m.forgetForm.Init()
+			case key.Matches(msg, m.keys.MoveBack):
+				if m.activeTab > 0 {
+					m.activeTab--
+				} else {
+					m.activeTab = 2
+				}
+				return m, nil
+			case key.Matches(msg, m.keys.MoveForward):
+				m.activeTab = (m.activeTab + 1) % 3
+				return m, nil
 			case key.Matches(msg, m.keys.Quit):
 				return m, tea.Quit
 			}
@@ -648,64 +705,223 @@ func (m Model) View() string {
 		mm := int(m.elapsed.Minutes()) % 60
 		ss := int(m.elapsed.Seconds()) % 60
 		timeStr := fmt.Sprintf("%02d:%02d:%02d", h, mm, ss)
+		limitedHelp := customHelp{keys.MoveBack, keys.MoveForward, keys.Quit}
+
+		// Renderiza a linha de abas:
+		activeTabStyle := lipgloss.NewStyle().
+			Bold(true).
+			Italic(true).
+			Foreground(lipgloss.Color(config.ClockWerkColor))
+
+		inactiveTabStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.NoColor{})
+
+		tabs := []string{"Timer", "Histórico", "Sobre"}
+		var tabsLine strings.Builder
+		for i, tab := range tabs {
+			if i == m.activeTab {
+				tabsLine.WriteString(activeTabStyle.Render(fmt.Sprintf("[%s] ", tab)))
+			} else {
+				tabsLine.WriteString(inactiveTabStyle.Render(fmt.Sprintf(" %s  ", tab)))
+			}
+		}
+
 		b.WriteString(
 			lipgloss.NewStyle().
 				Bold(true).
 				Width(config.DefaultWidth).
-				Render("Registro de Ponto - Clockwerk") +
-				"\n\n",
-		)
-		b.WriteString(
-			lipgloss.NewStyle().
-				Render(" Colaborador: " + m.eventMsg.employeeName + "\n"),
-		)
-		b.WriteString(
-			lipgloss.NewStyle().
-				Render(" Empresa:     " + m.eventMsg.companyName + "\n"),
-		)
-		b.WriteString(
-			lipgloss.NewStyle().Render(" Data atual:  " + now.Local().Format("02/01/2006") + "\n"),
-		)
-		b.WriteString(
-			lipgloss.NewStyle().Render(" Expediente:  " + m.eventMsg.timeTable + "\n"),
-		)
-		b.WriteString(
-			lipgloss.NewStyle().Render(" Registros:   " + strconv.Itoa(m.punchCount) + "\n"),
+				Render(" Registro de Ponto - Clockwerk") +
+				"\n",
 		)
 
-		maybeTodayClock, exists := m.eventMsg.clocking[config.TodayKey]
+		boxStyle := lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			Width(config.DefaultWidth)
 
-		if exists {
-			t := tree.Root(".")
-			for _, event := range maybeTodayClock {
-				t.Child(strings.Split(event.time, ".")[0] + " " + event.platform)
+		var contentBuilder strings.Builder
+
+		contentBuilder.WriteString(
+			lipgloss.NewStyle().
+				Width(config.DefaultWidth).
+				AlignHorizontal(lipgloss.Center).
+				Render(
+					tabsLine.String(),
+				),
+		)
+
+		contentBuilder.WriteString("\n\n")
+
+		switch m.activeTab {
+		case 0:
+			lines := []string{
+				"Colaborador: " + m.eventMsg.employeeName,
+				"Empresa:     " + m.eventMsg.companyName,
+				"Data atual:  " + now.Local().Format("02/01/2006"),
+				"Expediente:  " + m.eventMsg.timeTable,
+				"Registros:   " + strconv.Itoa(m.punchCount),
 			}
-			b.WriteString(
+
+			contentBuilder.WriteString(strings.Join(lines, "\n"))
+			maybeTodayClock, exists := m.eventMsg.clocking[config.TodayKey]
+
+			if exists {
+				t := tree.Root(".")
+				for _, event := range maybeTodayClock {
+					t.Child(strings.Split(event.time, ".")[0] + " " + event.platform)
+				}
+				contentBuilder.WriteString("\n" + t.String() + "\n")
+			} else {
+				contentBuilder.WriteString("\n")
+			}
+
+			asciiArt := figure.NewFigure(timeStr, "starwars", true).String()
+			lines = strings.Split(asciiArt, "\n")
+			maxWidth := 0
+
+			for _, line := range lines {
+				if len(line) > maxWidth {
+					maxWidth = len(line)
+				}
+			}
+
+			for i, line := range lines {
+				lines[i] = lipgloss.NewStyle().Width(maxWidth).Render(line)
+			}
+
+			alignedArt := strings.Join(lines, "\n")
+			contentBuilder.WriteString(
 				lipgloss.NewStyle().
-					PaddingLeft(2).
-					Render(t.String() + "\n"),
+					Width(config.DefaultWidth).
+					Bold(true).
+					Foreground(lipgloss.Color(config.ClockWerkColor)).
+					AlignHorizontal(lipgloss.Center).
+					Render(alignedArt),
+			)
+
+			if m.forgetForm != nil {
+				contentBuilder.WriteString("\n")
+				contentBuilder.WriteString(m.forgetForm.View())
+			} else if m.punchForm != nil {
+				contentBuilder.WriteString(m.punchForm.View())
+			} else {
+				contentBuilder.WriteString("\n")
+				contentBuilder.WriteString(
+					lipgloss.NewStyle().
+						Width(config.DefaultWidth).
+						AlignHorizontal(lipgloss.Center).
+						Render(m.help.View(m.keys)),
+				)
+			}
+		case 1: // Aba "Histórico": conteúdo de exemplo para registros passados
+			var dates []string
+			for date := range m.eventMsg.clocking {
+				dates = append(dates, date)
+			}
+
+			sort.Slice(dates, func(i, j int) bool {
+				t1, err1 := time.Parse("02/01/2006", dates[i])
+				t2, err2 := time.Parse("02/01/2006", dates[j])
+				if err1 != nil || err2 != nil {
+					return dates[i] > dates[j]
+				}
+				return t1.After(t2)
+			})
+
+			bc := barchart.New(config.DefaultWidth, config.DefaultHeight)
+
+			for _, date := range dates {
+				clockings := m.eventMsg.clocking[date]
+				workedHours := 0.0
+				copyClocking := make([]clockingMsg, len(clockings))
+				copy(copyClocking, clockings)
+
+				if len(copyClocking)%2 != 0 {
+					copyClocking = copyClocking[:len(copyClocking)-1]
+				}
+
+				for i := 0; i < len(copyClocking)-1; i += 2 {
+					startTime := copyClocking[i].eventTime
+					endTime := copyClocking[i+1].eventTime
+					workedHours += endTime.Sub(startTime).Hours()
+				}
+
+				shortDate := clockings[0].eventTime.Format("02/01")
+				formattedTime := formatHoursAsHHMM(workedHours)
+
+				var barColor string
+				switch {
+				case workedHours < 2:
+					barColor = config.SunflowerYellow
+				case workedHours <= 5:
+					barColor = config.MintGreen
+				case workedHours <= 8:
+					barColor = config.ForestGreen
+				default:
+					barColor = config.ClockWerkColor
+				}
+
+				bar := barchart.BarData{
+					Label: fmt.Sprintf("%s (%s)", shortDate, formattedTime),
+					Values: []barchart.BarValue{
+						{
+							Name:  date,
+							Value: workedHours,
+							Style: lipgloss.NewStyle().Foreground(lipgloss.Color(barColor)),
+						},
+					},
+				}
+				bc.Push(bar)
+			}
+
+			bc.Draw()
+			contentBuilder.WriteString(
+				lipgloss.NewStyle().
+					Bold(true).
+					Render("Histórico de ponto") + "\n",
+			)
+			contentBuilder.WriteString(
+				lipgloss.NewStyle().
+					Italic(true).
+					Render("Confira um resumo dos registros dos últimos cinco dias (quando disponíveis). O gráfico mostra o total de horas trabalhadas em cada dia.") +
+					"\n",
+			)
+			contentBuilder.WriteString("\n")
+			contentBuilder.WriteString(bc.View())
+			contentBuilder.WriteString("\n\n")
+			contentBuilder.WriteString(
+				lipgloss.NewStyle().
+					Width(config.DefaultWidth).
+					AlignHorizontal(lipgloss.Center).
+					Render(m.help.View(limitedHelp)),
+			)
+
+		case 2: // Aba "Sobre": informações sobre o aplicativo
+			contentBuilder.WriteString(
+				lipgloss.NewStyle().Bold(true).Render("Sobre o Clockwerk") + "\n\n",
+			)
+			contentBuilder.WriteString(
+				"Clockwerk é um exemplo de aplicativo TUI para controle de ponto.\n",
+			)
+			contentBuilder.WriteString(
+				"Versão: 1.0.0\n",
+			)
+			contentBuilder.WriteString(
+				"Go: 1.23.6\n",
+			)
+			contentBuilder.WriteString(
+				"Desenvolvido com S2 por diego dario.\n",
+			)
+			contentBuilder.WriteString("\n")
+			contentBuilder.WriteString(
+				lipgloss.NewStyle().
+					Width(config.DefaultWidth).
+					AlignHorizontal(lipgloss.Center).
+					Render(m.help.View(limitedHelp)),
 			)
 		}
 
-		b.WriteString(
-			lipgloss.NewStyle().
-				Width(config.DefaultWidth).
-				Bold(true).
-				Foreground(lipgloss.Color(config.ClockWerkColor)).
-				PaddingLeft(2).
-				Render("\n" + figure.NewFigure(timeStr, "starwars", true).String() + "\n"),
-		)
-
-		if m.forgetForm != nil {
-			b.WriteString("\n")
-			b.WriteString(m.forgetForm.View())
-		} else if m.punchForm != nil {
-			b.WriteString("\nConfirma o registro de ponto?\n")
-			b.WriteString(m.punchForm.View())
-		} else {
-			b.WriteString("\n")
-			b.WriteString(m.help.View(m.keys))
-		}
+		// Renderiza todo o conteúdo ao final
+		b.WriteString(boxStyle.Render(contentBuilder.String()))
 
 	case 6:
 		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Registrando evento ponto...") + "\n\n")

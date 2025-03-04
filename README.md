@@ -1,28 +1,40 @@
-# Clockwerk
+# Clockwerk ⏰
 
-**WorkClock** is a terminal user interface (TUI) application written in Go for managing electronic timekeeping at work. This tool allows you to clock in and out, including starting and ending breaks, directly from your terminal. It replaces the need for traditional timekeeping apps with a simple and efficient command-line interface.
+**Clockwerk** é uma aplicação TUI (Terminal User Interface) escrita em Go para gestão eletrônica de ponto de trabalho [Senior X](https://www.senior.com.br). Gerencie seus registros de jornada diretamente do terminal, substituindo aplicativos tradicionais por uma interface simples e eficiente.
 
-## Features
+![Demonstração do Clockwerk](https://github.com/user-attachments/assets/376f75f6-4e8b-49ab-8908-1c795df61543)
 
-- **Clock In**: Start your workday with a single command.
-- **Start Break**: Record the beginning of your break.
-- **End Break**: Log the end of your break and resume work.
-- **Clock Out**: End your workday and save the record.
-- **User-Friendly Interface**: Easy to navigate and use, even for those new to terminal applications.
-- **Lightweight and Fast**: Minimal resource usage and quick response times.
+## ✨ Funcionalidades
 
-## Installation
+- **Registro de entrada/saída**
+  - Inicie e encerre sua jornada com comandos intuitivos
+- **Gestão de intervalos**
+  - Controle pausas para almoço e descanso
+- **Interface amigável**
+  - Navegação simplificada via teclado
+  - Visualização em tempo real dos registros
+- **Multiplataforma**
+  - Compatível com Windows, Linux e macOS
+- **Leve e rápido**
+  - Consumo mínimo de recursos (CPU/RAM)
 
-Instructions on how to install WorkClock.
+## 📥 Instalação
 
-## Usage
+### Binários Pré-Compilados
+1. Acesse a [página de releases](https://github.com/seu-usuario/clockwerk/releases)
+2. Baixe o executável para seu sistema:
+   - Windows: `clockwerk_windows_amd64.exe`
+   - Linux: `clockwerk_linux_amd64`
+   - macOS: `clockwerk_darwin_amd64`
 
-Examples and commands for using WorkClock.
+### Via Código Fonte
+Requisitos:
+- Go 1.22+
+- `mingw-w64` (para compilação no Windows)
 
-## Contributing
+```bash
+# Instalar e executar
+go install github.com/diegodario88/clockwerk@latest
 
-Guidelines for contributing to the project.
-
-## License
-
-Information about the license for WorkClock.
+# Compilar manualmente (Windows)
+GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_ENABLED=1 go build -o clockwerk.exe

@@ -1024,7 +1024,9 @@ func (m Model) View() string {
 					Render("Feito com ❤️ por diegodario88"),
 			)
 
-			contentBuilder.WriteString("\n\n" +
+			contentBuilder.WriteString("\n\n")
+
+			contentBuilder.WriteString(
 				lipgloss.NewStyle().
 					Width(config.DefaultWidth).
 					AlignHorizontal(lipgloss.Center).

@@ -12,6 +12,7 @@ import (
 )
 
 type UserCredentials struct {
+	Domain   string `json:"domain"`
 	CPF      string `json:"cpf"`
 	Password string `json:"password"`
 	Token    string `json:"token"`
@@ -48,7 +49,7 @@ func SaveCredentials(creds UserCredentials) error {
 		return fmt.Errorf("erro ao serializar dados criptografados: %v", err)
 	}
 
-	err = os.WriteFile(getCredentialsFilePath(), encJson, 0600) // Permissão apenas para o usuário
+	err = os.WriteFile(GetCredentialsFilePath(), encJson, 0600) // Permissão apenas para o usuário
 	if err != nil {
 		log.Println("Erro ao salvar arquivo de credenciais: %w", err)
 		return fmt.Errorf("erro ao salvar arquivo de credenciais: %v", err)
@@ -60,7 +61,7 @@ func SaveCredentials(creds UserCredentials) error {
 func LoadCredentials() (UserCredentials, error) {
 	var creds UserCredentials
 
-	filePath := getCredentialsFilePath()
+	filePath := GetCredentialsFilePath()
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -104,7 +105,7 @@ func LoadCredentials() (UserCredentials, error) {
 }
 
 func DeleteCredentials() error {
-	filePath := getCredentialsFilePath()
+	filePath := GetCredentialsFilePath()
 	err := os.Remove(filePath)
 	if err != nil && !os.IsNotExist(err) {
 		log.Println("Erro ao remover arquivo de credenciais: %w", err)
@@ -113,7 +114,7 @@ func DeleteCredentials() error {
 	return nil
 }
 
-func getCredentialsFilePath() string {
+func GetCredentialsFilePath() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		log.Println("Erro ao obter diretório do usuário: %w", err)

@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/NimbleMarkets/ntcharts/barchart"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/paginator"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -31,6 +33,7 @@ type keyMap struct {
 	Quit        key.Binding
 	MoveBack    key.Binding
 	MoveForward key.Binding
+	Retry       key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
@@ -71,6 +74,10 @@ var keys = keyMap{
 	ForgetCreds: key.NewBinding(
 		key.WithKeys("e", "E"),
 		key.WithHelp("<e>", "Esquecer"),
+	),
+	Retry: key.NewBinding(
+		key.WithKeys("r", "R"),
+		key.WithHelp("<r>", "Tentar novamente"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c"),
@@ -135,6 +142,7 @@ type Model struct {
 	timerRunning   bool
 	tickScheduled  bool
 	hasAuthRecover bool
+	domain         string
 	cpf            string
 	password       string
 	token          string
@@ -147,10 +155,13 @@ type Model struct {
 	loginMsg       loginMsg
 	eventMsg       eventMsg
 	spinner        spinner.Model
+	paginator      paginator.Model
 	elapsed        time.Duration
 	help           help.Model
 	keys           keyMap
 }
+
+var version = "development"
 
 func formatHoursAsHHMM(hours float64) string {
 	totalMinutes := int(math.Round(hours * 60))
@@ -284,16 +295,28 @@ func NewModel() Model {
 		PaddingLeft(1).
 		Foreground(lipgloss.Color(config.ClockWerkColor))
 
+	p := paginator.New()
+	p.Type = paginator.Dots
+	p.ActiveDot = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.ClockWerkColor)).
+		Render("⚫")
+	p.InactiveDot = lipgloss.NewStyle().
+		Render("⚫")
+	p.SetTotalPages(3)
+
 	helpModel := help.New()
 
 	creds, err := storage.LoadCredentials()
 	initialStep := 0
+	initialDomain := ""
 	initialCPF := ""
 	initialPassword := ""
 	initialToken := ""
 
-	if err == nil && creds.CPF != "" && creds.Password != "" && creds.Token != "" {
+	if err == nil && creds.Domain != "" && creds.CPF != "" && creds.Password != "" &&
+		creds.Token != "" {
 		initialStep = 4
+		initialDomain = creds.Domain
 		initialCPF = creds.CPF
 		initialPassword = creds.Password
 		initialToken = creds.Token
@@ -301,15 +324,17 @@ func NewModel() Model {
 
 	return Model{
 		step:         initialStep,
+		domain:       initialDomain,
 		cpf:          initialCPF,
 		password:     initialPassword,
 		token:        initialToken,
-		cpfForm:      ui.NewCPFForm(initialCPF),
+		cpfForm:      ui.NewCPFForm(initialDomain, initialCPF),
 		passwordForm: ui.NewPasswordForm(initialPassword),
 		keepForm:     ui.NewKeepForm(true),
 		punchForm:    nil,
 		forgetForm:   nil,
 		spinner:      sp,
+		paginator:    p,
 		timerRunning: false,
 		elapsed:      0,
 		punchCount:   0,
@@ -357,7 +382,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd = c
 		if m.cpfForm.State == huh.StateCompleted {
 			m.cpf = m.cpfForm.GetString("cpf")
+			m.domain = m.cpfForm.GetString("domain")
 			m.step = 1
+			m.paginator.NextPage()
 			m.passwordForm = ui.NewPasswordForm(m.passwordForm.GetString("password"))
 			return m, m.passwordForm.Init()
 		}
@@ -372,11 +399,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.passwordForm.State == huh.StateCompleted {
 			if !m.passwordForm.GetBool("next") {
 				m.step = 0
-				m.cpfForm = ui.NewCPFForm(m.cpfForm.GetString("cpf"))
+				m.paginator.PrevPage()
+				m.cpfForm = ui.NewCPFForm(m.cpfForm.GetString("domain"), m.cpfForm.GetString("cpf"))
 				return m, m.cpfForm.Init()
 			}
 			m.password = m.passwordForm.GetString("password")
 			m.step = 2
+			m.paginator.NextPage()
 			m.keepForm = ui.NewKeepForm(m.keepLogged)
 			return m, m.keepForm.Init()
 		}
@@ -391,6 +420,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.keepForm.State == huh.StateCompleted {
 			if !m.keepForm.GetBool("next") {
 				m.step = 1
+				m.paginator.PrevPage()
 				m.passwordForm = ui.NewPasswordForm(m.passwordForm.GetString("password"))
 				m.keepLogged = m.keepForm.GetBool("keep")
 				return m, m.passwordForm.Init()
@@ -398,7 +428,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.keepLogged = m.keepForm.GetBool("keep")
 			m.step = 3
 			return m, tea.Batch(
-				handleAuthentication(fmt.Sprintf("%s@gazin.com.br", m.cpf), m.password),
+				handleAuthentication(fmt.Sprintf("%s@%s", m.cpf, m.domain), m.password),
 				m.spinner.Tick,
 			)
 		}
@@ -418,6 +448,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if m.keepLogged {
 				creds := storage.UserCredentials{
+					Domain:   m.domain,
 					CPF:      m.cpf,
 					Password: m.password,
 					Token:    msg.token,
@@ -433,8 +464,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				fallthrough
 			case "R":
 				if m.failedMsg.error != "" {
+					m.failedMsg = failedMsg{error: ""}
 					m.step = 0
-					m.cpfForm = ui.NewCPFForm(m.cpfForm.GetString("cpf"))
+					m.paginator.PrevPage()
+					m.paginator.PrevPage()
+					m.cpfForm = ui.NewCPFForm(m.cpfForm.GetString("domain"), m.cpfForm.GetString("cpf"))
 					return m, m.cpfForm.Init()
 				}
 			}
@@ -450,7 +484,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.step = 3
 				m.hasAuthRecover = true
 				return m, tea.Batch(
-					handleAuthentication(fmt.Sprintf("%s@gazin.com.br", m.cpf), m.password),
+					handleAuthentication(fmt.Sprintf("%s@%s", m.cpf, m.domain), m.password),
 					m.spinner.Tick,
 				)
 			}
@@ -497,7 +531,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "R":
 				if m.failedMsg.error != "" {
 					m.step = 0
-					m.cpfForm = ui.NewCPFForm(m.cpfForm.GetString("cpf"))
+					m.failedMsg = failedMsg{error: ""}
+					m.cpfForm = ui.NewCPFForm(m.cpfForm.GetString("domain"), m.cpfForm.GetString("cpf"))
 					return m, m.cpfForm.Init()
 				}
 			}
@@ -519,8 +554,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				m.forgetForm = nil
+				if m.timerRunning {
+					return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+						return tickMsg{}
+					})
+				}
 				return m, nil
 			}
+
 			return m, cmd
 		}
 
@@ -615,23 +656,68 @@ func (m Model) View() string {
 		b.WriteString(lipgloss.NewStyle().
 			Bold(true).
 			Render("Autenticação - Etapa 1/3: Identificação") + "\n\n")
-		b.WriteString(m.cpfForm.View())
+		b.WriteString(m.cpfForm.View() + "\n\n")
+		b.WriteString(
+			lipgloss.NewStyle().
+				Width(config.DefaultWidth).
+				AlignHorizontal(lipgloss.Center).
+				Render(m.paginator.View()),
+		)
 
 	case 1:
-		loginEmail := fmt.Sprintf("%s@gazin.com.br", m.cpf)
+		loginEmail := fmt.Sprintf("%s@%s", m.cpf, m.domain)
 		b.WriteString(
 			lipgloss.NewStyle().Bold(true).Render("Autenticação - Etapa 2/3: Senha") + "\n\n",
 		)
-		b.WriteString(lipgloss.NewStyle().Italic(true).Render("Login: "+loginEmail) + "\n\n")
-		b.WriteString(m.passwordForm.View())
+		b.WriteString(
+			"Domínio: " +
+				lipgloss.NewStyle().Italic(true).Render(m.domain) + "\n",
+		)
+		b.WriteString(
+			"CPF:     " +
+				lipgloss.NewStyle().Italic(true).Render(m.cpf) + "\n",
+		)
+		b.WriteString(
+			"Login:   " +
+				lipgloss.NewStyle().Italic(true).Render(loginEmail) + "\n\n",
+		)
+		b.WriteString(m.passwordForm.View() + "\n\n")
+		b.WriteString(
+			lipgloss.NewStyle().
+				Width(config.DefaultWidth).
+				AlignHorizontal(lipgloss.Center).
+				Render(m.paginator.View()),
+		)
 
 	case 2:
 		b.WriteString(lipgloss.NewStyle().
 			Bold(true).
 			Render("Autenticação - Etapa 3/3: Manter Logado") + "\n\n")
-		b.WriteString(m.keepForm.View())
+		b.WriteString(m.keepForm.View() + "\n\n")
+		b.WriteString(
+			"Informações serão persistidas em " +
+				lipgloss.NewStyle().
+					Bold(true).
+					Italic(true).
+					Render(storage.GetCredentialsFilePath()),
+		)
+		b.WriteString("\n")
+		b.WriteString(
+			lipgloss.NewStyle().
+				Italic(true).
+				Render("* Armazenaremos suas credenciais de forma criptografada utilizando AES-256."),
+		)
+		b.WriteString("\n\n")
+		b.WriteString(
+			lipgloss.NewStyle().
+				Width(config.DefaultWidth).
+				AlignHorizontal(lipgloss.Center).
+				Render(m.paginator.View()),
+		)
 
 	case 3:
+		limitedHelp := customHelp{keys.Retry, keys.Quit}
+
 		if m.failedMsg.error != "" {
 			b.WriteString(
 				lipgloss.NewStyle().
@@ -641,31 +727,42 @@ func (m Model) View() string {
 			)
 			b.WriteString(
 				lipgloss.NewStyle().
+					Width(config.DefaultWidth).
+					AlignHorizontal(lipgloss.Center).
 					Italic(true).
-					Render(fmt.Sprintf("Login: %s@gazin.com.br", m.cpf)) + "\n",
+					Render(fmt.Sprintf("Login: %s@%s", m.cpf, m.domain)) + "\n",
 			)
 			b.WriteString(
 				lipgloss.NewStyle().
+					Width(config.DefaultWidth).
+					AlignHorizontal(lipgloss.Center).
 					Italic(true).
 					Render(fmt.Sprintf("Mensagem: %s", m.failedMsg.error)) +
 					"\n\n",
 			)
 			b.WriteString(
 				lipgloss.NewStyle().
-					PaddingLeft(2).
+					Width(config.DefaultWidth).
+					AlignHorizontal(lipgloss.Center).
 					Blink(true).
 					Foreground(lipgloss.Color(config.ClockWerkColor)).
 					Render(
 						"¯\\_(ツ)_/¯",
 					) + "\n\n",
 			)
-			b.WriteString("Pressione R para tentar novamente.")
+			b.WriteString(
+				lipgloss.NewStyle().
+					Width(config.DefaultWidth).
+					AlignHorizontal(lipgloss.Center).
+					Render(m.help.View(limitedHelp)),
+			)
 		} else {
 			b.WriteString(lipgloss.NewStyle().Bold(true).Render("Autenticando...") + "\n\n")
 			b.WriteString(m.spinner.View())
 		}
 
 	case 4:
+		limitedHelp := customHelp{keys.Retry, keys.Quit}
 		if m.failedMsg.error != "" {
 			b.WriteString(
 				lipgloss.NewStyle().
@@ -676,7 +773,7 @@ func (m Model) View() string {
 			b.WriteString(
 				lipgloss.NewStyle().
 					Italic(true).
-					Render(fmt.Sprintf("Login: %s@gazin.com.br", m.cpf)) + "\n",
+					Render(fmt.Sprintf("Login: %s@%s", m.cpf, m.domain)) + "\n",
 			)
 			b.WriteString(
 				lipgloss.NewStyle().
@@ -693,7 +790,12 @@ func (m Model) View() string {
 						"¯\\_(ツ)_/¯",
 					) + "\n\n",
 			)
-			b.WriteString("Pressione R para tentar novamente.")
+			b.WriteString(
+				lipgloss.NewStyle().
+					Width(config.DefaultWidth).
+					AlignHorizontal(lipgloss.Center).
+					Render(m.help.View(limitedHelp)),
+			)
 		} else {
 			b.WriteString(lipgloss.NewStyle().Bold(true).Render("Buscando últimos eventos...") + "\n\n")
 			b.WriteString(m.spinner.View())
@@ -896,23 +998,33 @@ func (m Model) View() string {
 			)
 
 		case 2: // Aba "Sobre": informações sobre o aplicativo
+			goVersion := runtime.Version()
+			osInfo := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+			debugMode := "Inativo"
+			if len(os.Getenv("DEBUG")) > 0 {
+				debugMode = "Ativo"
+			}
+
 			contentBuilder.WriteString(
 				lipgloss.NewStyle().Bold(true).Render("Sobre o Clockwerk") + "\n\n",
 			)
 			contentBuilder.WriteString(
-				"Clockwerk é um exemplo de aplicativo TUI para controle de ponto.\n",
+				"Clockwerk é um exemplo de aplicativo TUI para controle de ponto.\n\n",
 			)
+			contentBuilder.WriteString(fmt.Sprintf("Versão:      %s\n", version))
+			contentBuilder.WriteString(fmt.Sprintf("Go:          %s\n", goVersion))
+			contentBuilder.WriteString(fmt.Sprintf("Sistema:     %s\n", osInfo))
+			contentBuilder.WriteString(fmt.Sprintf("Depuração:   %s\n", debugMode))
+			contentBuilder.WriteString("\n\n")
+
 			contentBuilder.WriteString(
-				"Versão: 1.0.0\n",
+				lipgloss.NewStyle().
+					Width(config.DefaultWidth).
+					AlignHorizontal(lipgloss.Center).
+					Render("Feito com ❤️ por diegodario88"),
 			)
-			contentBuilder.WriteString(
-				"Go: 1.23.6\n",
-			)
-			contentBuilder.WriteString(
-				"Desenvolvido com S2 por diego dario.\n",
-			)
-			contentBuilder.WriteString("\n")
-			contentBuilder.WriteString(
+
+			contentBuilder.WriteString("\n\n" +
 				lipgloss.NewStyle().
 					Width(config.DefaultWidth).
 					AlignHorizontal(lipgloss.Center).
@@ -932,12 +1044,15 @@ func (m Model) View() string {
 }
 
 func main() {
-	f, err := tea.LogToFile("debug.log", "debug")
-	if err != nil {
-		fmt.Println("fatal:", err)
-		os.Exit(1)
+	if len(os.Getenv("DEBUG")) > 0 {
+		f, err := tea.LogToFile("debug.log", "debug")
+		if err != nil {
+			fmt.Println("fatal:", err)
+			os.Exit(1)
+		}
+		defer f.Close()
 	}
-	defer f.Close()
+
 	if _, err := tea.NewProgram(NewModel(), tea.WithAltScreen()).Run(); err != nil {
 		log.Printf("Erro ao executar o programa: %s\n", err)
 		os.Exit(1)

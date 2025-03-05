@@ -1,0 +1,4 @@
+builds:
+  - main: ./main.go
+    ldflags:
+      - -X 'main.version={{ .Version }}'

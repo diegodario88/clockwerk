@@ -366,9 +366,9 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Interrupt
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			return m, tea.Quit
 		}
 	}
 	var cmd tea.Cmd
@@ -1046,7 +1046,11 @@ func (m Model) View() string {
 }
 
 func main() {
+	var hasDebug = false
 	if len(os.Getenv("DEBUG")) > 0 {
+		hasDebug = true
+	}
+	if hasDebug {
 		f, err := tea.LogToFile("debug.log", "debug")
 		if err != nil {
 			fmt.Println("fatal:", err)
@@ -1055,8 +1059,14 @@ func main() {
 		defer f.Close()
 	}
 
-	if _, err := tea.NewProgram(NewModel(), tea.WithAltScreen()).Run(); err != nil {
-		log.Printf("Erro ao executar o programa: %s\n", err)
+	program := tea.NewProgram(NewModel(), tea.WithAltScreen())
+
+	if _, err := program.Run(); err != nil {
+		if hasDebug {
+			log.Printf("Erro ao executar o programa: %s\n", err)
+		}
 		os.Exit(1)
 	}
+
+	program.Quit()
 }

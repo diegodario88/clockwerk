@@ -18,7 +18,7 @@
 - **Leve e rápido**
   - Consumo mínimo de recursos (CPU/RAM)
 
-### Navegação
+## 🖦  Navegação
 
 As seguinte teclas de atalho são usadas para navegar e explorar o programa
 

@@ -847,7 +847,7 @@ func (m Model) View() string {
 		mm := int(m.elapsed.Minutes()) % 60
 		ss := int(m.elapsed.Seconds()) % 60
 		timeStr := fmt.Sprintf("%02d:%02d:%02d", h, mm, ss)
-		limitedHelp := customHelp{keys.MoveBack, keys.MoveForward, keys.Quit}
+		limitedHelp := customHelp{keys.MoveBack, keys.MoveForward, keys.Exit, keys.Quit}
 
 		// Renderiza a linha de abas:
 		activeTabStyle := lipgloss.NewStyle().

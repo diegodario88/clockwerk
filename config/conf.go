@@ -18,4 +18,5 @@ const SunflowerYellow = "#f7b733"
 const ClockWerkColor = "#E28413"
 const TimeLayout = "2006-01-02 15:04:05.999 -07:00"
 const DefaultWidth = 90
-const DefaultHeight = 15
+const DefaultHeight = 30
+const DefaultBarHeight = 15

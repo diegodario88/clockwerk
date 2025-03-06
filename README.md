@@ -24,9 +24,11 @@ As seguinte teclas de atalho são usadas para navegar e explorar o programa
 
 - <kbd>h</kbd>/<kbd>←</kbd> para navegar para esquerda
 - <kbd>l</kbd>/<kbd>→</kbd> para navegar para direita
-- <kbd>ctrl+c</kbd> fechar o programa
-- <kbd>e</kbd> esquecer credenciais
 - <kbd>Space</kbd> bater o ponto
+- <kbd>ctrl+c</kbd> forçar fechar o programa
+- <kbd>q</kbd> sair
+- <kbd>e</kbd> esquecer credenciais
+- <kbd>r</kbd> retentar caso haja erro
 
 ## 📥 Instalação
 

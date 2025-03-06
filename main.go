@@ -31,6 +31,7 @@ type keyMap struct {
 	Punch       key.Binding
 	ForgetCreds key.Binding
 	Quit        key.Binding
+	Exit        key.Binding
 	MoveBack    key.Binding
 	MoveForward key.Binding
 	Retry       key.Binding
@@ -42,6 +43,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 		k.MoveForward,
 		k.Punch,
 		k.ForgetCreds,
+		k.Exit,
 		k.Quit,
 	}
 }
@@ -53,6 +55,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 			k.MoveForward,
 			k.Punch,
 			k.ForgetCreds,
+			k.Exit,
 			k.Quit,
 		},
 	}
@@ -78,6 +81,10 @@ var keys = keyMap{
 	Retry: key.NewBinding(
 		key.WithKeys("r", "R"),
 		key.WithHelp("<r>", "Tentar novamente"),
+	),
+	Exit: key.NewBinding(
+		key.WithKeys("q", "Q"),
+		key.WithHelp("<q>", "Fechar"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c"),
@@ -159,6 +166,9 @@ type Model struct {
 	elapsed        time.Duration
 	help           help.Model
 	keys           keyMap
+	width          int
+	height         int
+	tooSmall       bool
 }
 
 var version = "development"
@@ -365,6 +375,15 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		if m.width < config.DefaultWidth || m.height < config.DefaultHeight {
+			m.tooSmall = true
+		} else {
+			m.tooSmall = false
+		}
+		return m, nil
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.keys.Quit):
@@ -459,10 +478,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(handleGetClockingEvent(m.token), m.spinner.Tick)
 		case tea.KeyMsg:
-			switch msg.String() {
-			case "r":
-				fallthrough
-			case "R":
+			switch {
+			case key.Matches(msg, m.keys.Retry):
 				if m.failedMsg.error != "" {
 					m.failedMsg = failedMsg{error: ""}
 					m.step = 0
@@ -525,10 +542,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case tea.KeyMsg:
-			switch msg.String() {
-			case "r":
-				fallthrough
-			case "R":
+			switch {
+			case key.Matches(msg, m.keys.Retry):
 				if m.failedMsg.error != "" {
 					m.step = 0
 					m.failedMsg = failedMsg{error: ""}
@@ -620,6 +635,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case key.Matches(msg, m.keys.Quit):
 				return m, tea.Quit
+			case key.Matches(msg, m.keys.Exit):
+				return m, tea.Quit
 			}
 		case tickMsg:
 			if m.timerRunning {
@@ -650,6 +667,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	var b strings.Builder
+	if m.tooSmall {
+		b.WriteString(lipgloss.NewStyle().
+			Bold(true).
+			Render("A janela do terminal é muito pequena!") + "\n")
+		b.WriteString(lipgloss.NewStyle().
+			Italic(true).
+			Render(fmt.Sprintf("Largura = %d -> Ideal = %d", m.width, config.DefaultWidth)) +
+			"\n")
+		b.WriteString(lipgloss.NewStyle().
+			Italic(true).
+			Render(fmt.Sprintf("Altura = %d -> Ideal = %d", m.height, config.DefaultHeight)) + "\n")
+		return b.String()
+	}
 
 	switch m.step {
 	case 0:
@@ -758,7 +788,12 @@ func (m Model) View() string {
 			)
 		} else {
 			b.WriteString(lipgloss.NewStyle().Bold(true).Render("Autenticando...") + "\n\n")
-			b.WriteString(m.spinner.View())
+			b.WriteString(
+				lipgloss.NewStyle().
+					Width(config.DefaultWidth).
+					AlignHorizontal(lipgloss.Center).
+					Render(m.spinner.View()),
+			)
 		}
 
 	case 4:
@@ -798,7 +833,12 @@ func (m Model) View() string {
 			)
 		} else {
 			b.WriteString(lipgloss.NewStyle().Bold(true).Render("Buscando últimos eventos...") + "\n\n")
-			b.WriteString(m.spinner.View())
+			b.WriteString(
+				lipgloss.NewStyle().
+					Width(config.DefaultWidth).
+					AlignHorizontal(lipgloss.Center).
+					Render(m.spinner.View()),
+			)
 		}
 
 	case 5:
@@ -838,6 +878,7 @@ func (m Model) View() string {
 
 		boxStyle := lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
+			Height(config.DefaultHeight).
 			Width(config.DefaultWidth)
 
 		var contentBuilder strings.Builder
@@ -897,6 +938,7 @@ func (m Model) View() string {
 					Bold(true).
 					Foreground(lipgloss.Color(config.ClockWerkColor)).
 					AlignHorizontal(lipgloss.Center).
+					AlignVertical(lipgloss.Bottom).
 					Render(alignedArt),
 			)
 
@@ -911,6 +953,7 @@ func (m Model) View() string {
 					lipgloss.NewStyle().
 						Width(config.DefaultWidth).
 						AlignHorizontal(lipgloss.Center).
+						AlignVertical(lipgloss.Bottom).
 						Render(m.help.View(m.keys)),
 				)
 			}
@@ -929,7 +972,7 @@ func (m Model) View() string {
 				return t1.After(t2)
 			})
 
-			bc := barchart.New(config.DefaultWidth, config.DefaultHeight)
+			bc := barchart.New(config.DefaultWidth, config.DefaultBarHeight)
 
 			for _, date := range dates {
 				clockings := m.eventMsg.clocking[date]
@@ -956,10 +999,10 @@ func (m Model) View() string {
 					barColor = config.SunflowerYellow
 				case workedHours <= 5:
 					barColor = config.MintGreen
-				case workedHours <= 8:
+				case workedHours <= 8.5:
 					barColor = config.ForestGreen
 				default:
-					barColor = config.ClockWerkColor
+					barColor = config.LavaRed
 				}
 
 				bar := barchart.BarData{
@@ -996,7 +1039,6 @@ func (m Model) View() string {
 					AlignHorizontal(lipgloss.Center).
 					Render(m.help.View(limitedHelp)),
 			)
-
 		case 2: // Aba "Sobre": informações sobre o aplicativo
 			goVersion := runtime.Version()
 			osInfo := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
@@ -1033,10 +1075,8 @@ func (m Model) View() string {
 					Render(m.help.View(limitedHelp)),
 			)
 		}
-
 		// Renderiza todo o conteúdo ao final
 		b.WriteString(boxStyle.Render(contentBuilder.String()))
-
 	case 6:
 		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Registrando evento ponto...") + "\n\n")
 		b.WriteString(m.spinner.View())

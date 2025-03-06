@@ -18,9 +18,20 @@
 - **Leve e rápido**
   - Consumo mínimo de recursos (CPU/RAM)
 
+### Navegação
+
+As seguinte teclas de atalho são usadas para navegar e explorar o programa
+
+- <kbd>h</kbd>/<kbd>←</kbd> para navegar para esquerda
+- <kbd>l</kbd>/<kbd>→</kbd> para navegar para direita
+- <kbd>ctrl+c</kbd> fechar o programa
+- <kbd>e</kbd> esquecer credenciais
+- <kbd>Space</kbd> bater o ponto
+
 ## 📥 Instalação
 
 ### Binários Pré-Compilados
+
 1. Acesse a [página de releases](https://github.com/seu-usuario/clockwerk/releases)
 2. Baixe o executável para seu sistema:
    - Windows: `clockwerk_windows_amd64.exe`
@@ -28,7 +39,9 @@
    - macOS: `clockwerk_darwin_amd64`
 
 ### Via Código Fonte
+
 Requisitos:
+
 - Go 1.22+
 - `mingw-w64` (para compilação no Windows)
 
@@ -38,3 +51,4 @@ go install github.com/diegodario88/clockwerk@latest
 
 # Compilar manualmente (Windows)
 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_ENABLED=1 go build -o clockwerk.exe
+```

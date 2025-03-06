@@ -34,7 +34,7 @@ As seguinte teclas de atalho são usadas para navegar e explorar o programa
 
 ### Binários Pré-Compilados
 
-1. Acesse a [página de releases](https://github.com/seu-usuario/clockwerk/releases)
+1. Acesse a [página de releases](https://github.com/diegodario88/clockwerk/releases)
 2. Baixe o executável para seu sistema:
    - Windows: `clockwerk_windows_amd64.exe`
    - Linux: `clockwerk_linux_amd64`

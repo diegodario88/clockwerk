@@ -381,9 +381,11 @@ func NewModel() Model {
 	p.Type = paginator.Dots
 	p.ActiveDot = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(config.ClockWerkColor)).
-		Render("⚫")
+		Padding(0, 1).
+		Render("● ")
 	p.InactiveDot = lipgloss.NewStyle().
-		Render("⚫")
+		Padding(0, 1).
+		Render("○ ")
 	p.SetTotalPages(3)
 
 	helpModel := help.New()

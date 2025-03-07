@@ -897,11 +897,11 @@ func (m Model) View() string {
 		switch m.activeTab {
 		case 0:
 			lines := []string{
-				"Colaborador: " + m.eventMsg.employeeName,
-				"Empresa:     " + m.eventMsg.companyName,
-				"Data atual:  " + now.Local().Format("02/01/2006"),
-				"Expediente:  " + m.eventMsg.timeTable,
-				"Registros:   " + strconv.Itoa(m.punchCount),
+				"Colaborador:   " + m.eventMsg.employeeName,
+				"Empresa:       " + m.eventMsg.companyName,
+				"Data atual:    " + now.Local().Format("02/01/2006"),
+				"Expediente:    " + m.eventMsg.timeTable,
+				"Registros:     " + strconv.Itoa(m.punchCount),
 			}
 
 			contentBuilder.WriteString(strings.Join(lines, "\n"))
@@ -1028,7 +1028,7 @@ func (m Model) View() string {
 				lipgloss.NewStyle().
 					Italic(true).
 					Render("Confira um resumo dos registros dos últimos cinco dias (quando disponíveis). O gráfico mostra o total de horas trabalhadas em cada dia.") +
-					"\n",
+					"\n\n",
 			)
 			contentBuilder.WriteString("\n")
 			contentBuilder.WriteString(bc.View())
@@ -1040,30 +1040,39 @@ func (m Model) View() string {
 					Render(m.help.View(limitedHelp)),
 			)
 		case 2: // Aba "Sobre": informações sobre o aplicativo
+			var memStats runtime.MemStats
+			runtime.ReadMemStats(&memStats)
 			goVersion := runtime.Version()
 			osInfo := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
-			debugMode := "Inativo"
+			debugMode := "desativado"
 			if len(os.Getenv("DEBUG")) > 0 {
-				debugMode = "Ativo"
+				debugMode = "ativado"
 			}
 
 			contentBuilder.WriteString(
-				lipgloss.NewStyle().Bold(true).Render("Sobre o Clockwerk") + "\n\n",
+				lipgloss.NewStyle().Bold(true).Render("Sobre o Clockwerk") + "\n",
 			)
 			contentBuilder.WriteString(
 				"Clockwerk é um exemplo de aplicativo TUI para controle de ponto.\n\n",
 			)
-			contentBuilder.WriteString(fmt.Sprintf("Versão:      %s\n", version))
-			contentBuilder.WriteString(fmt.Sprintf("Go:          %s\n", goVersion))
-			contentBuilder.WriteString(fmt.Sprintf("Sistema:     %s\n", osInfo))
-			contentBuilder.WriteString(fmt.Sprintf("Depuração:   %s\n", debugMode))
+			contentBuilder.WriteString(fmt.Sprintf("Versão:        %s\n", version))
+			contentBuilder.WriteString(fmt.Sprintf("Depuração:     %s\n", debugMode))
+			contentBuilder.WriteString(fmt.Sprintf("Go:            %s\n", goVersion))
+			contentBuilder.WriteString(fmt.Sprintf("Sistema:       %s\n", osInfo))
+			contentBuilder.WriteString(fmt.Sprintf("CPU Núcleos:   %d\n", runtime.NumCPU()))
+			contentBuilder.WriteString(fmt.Sprintf("Goroutines:    %d\n", runtime.NumGoroutine()))
+			contentBuilder.WriteString(
+				fmt.Sprintf("Uso Memória:   %.2f MB\n", float64(memStats.HeapAlloc)/1024/1024),
+			)
 			contentBuilder.WriteString("\n\n")
 
 			contentBuilder.WriteString(
 				lipgloss.NewStyle().
 					Width(config.DefaultWidth).
 					AlignHorizontal(lipgloss.Center).
-					Render("Feito com ❤️ por diegodario88"),
+					Bold(true).
+					Italic(true).
+					Render("Desenvolvido por diegodario88"),
 			)
 
 			contentBuilder.WriteString("\n\n")

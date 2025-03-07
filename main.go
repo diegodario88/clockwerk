@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/NimbleMarkets/ntcharts/barchart"
@@ -175,7 +176,12 @@ type Model struct {
 	tooSmall         bool
 }
 
-var version = "development"
+var (
+	version           = "development"
+	clockwerkIconPath string
+	createIconOnce    sync.Once
+	cleanupIconOnce   sync.Once
+)
 
 //go:embed assets/clockwerk.png
 var clockwerkIcon []byte
@@ -205,19 +211,26 @@ func sendNotification(title, message, urgency string) {
 		return
 	}
 
-	tmpFile, err := os.CreateTemp("", "clockwerk_icon_*.png")
-	if err != nil {
-		log.Printf("Erro ao criar arquivo temporário: %v", err)
-		return
-	}
+	createIconOnce.Do(func() {
+		if _, err := os.Stat("/tmp/clockwerk_icon.png"); err == nil {
+			clockwerkIconPath = "/tmp/clockwerk_icon.png"
+			return
+		}
 
-	if _, err := tmpFile.Write(clockwerkIcon); err != nil {
-		log.Printf("Erro ao escrever ícone no arquivo temporário: %v", err)
-		tmpFile.Close()
-		os.Remove(tmpFile.Name())
-		return
-	}
-	tmpFile.Close()
+		tmpFile, err := os.Create("/tmp/clockwerk_icon.png")
+		if err != nil {
+			log.Printf("Erro ao criar arquivo temporário: %v", err)
+			return
+		}
+		defer tmpFile.Close()
+
+		if _, err := tmpFile.Write(clockwerkIcon); err != nil {
+			log.Printf("Erro ao escrever ícone: %v", err)
+			return
+		}
+
+		clockwerkIconPath = tmpFile.Name()
+	})
 
 	expireTime := "10000"
 	category := "productivity.timetracking"
@@ -227,7 +240,7 @@ func sendNotification(title, message, urgency string) {
 
 	cmdParams := []string{
 		"-a", "Clockwerk",
-		"-i", tmpFile.Name(),
+		"-i", clockwerkIconPath,
 		"-u", urgency,
 		"-t", expireTime,
 		"-c", category,
@@ -236,9 +249,7 @@ func sendNotification(title, message, urgency string) {
 
 	cmdParams = append(cmdParams, title, message)
 	cmd := exec.Command("notify-send", cmdParams...)
-	err = cmd.Run()
-
-	os.Remove(tmpFile.Name())
+	err := cmd.Run()
 
 	if err != nil {
 		log.Printf("Erro ao enviar notificação: %v", err)

@@ -1,10 +1,12 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"log"
 	"math"
 	"os"
+	"os/exec"
 	"runtime"
 	"sort"
 	"strconv"
@@ -142,36 +144,106 @@ type clockingMsg struct {
 }
 
 type Model struct {
-	step           int
-	punchCount     int
-	activeTab      int
-	keepLogged     bool
-	timerRunning   bool
-	tickScheduled  bool
-	hasAuthRecover bool
-	domain         string
-	cpf            string
-	password       string
-	token          string
-	cpfForm        *huh.Form
-	passwordForm   *huh.Form
-	keepForm       *huh.Form
-	punchForm      *huh.Form
-	forgetForm     *huh.Form
-	failedMsg      failedMsg
-	loginMsg       loginMsg
-	eventMsg       eventMsg
-	spinner        spinner.Model
-	paginator      paginator.Model
-	elapsed        time.Duration
-	help           help.Model
-	keys           keyMap
-	width          int
-	height         int
-	tooSmall       bool
+	step             int
+	punchCount       int
+	activeTab        int
+	keepLogged       bool
+	timerRunning     bool
+	tickScheduled    bool
+	hasAuthRecover   bool
+	shoudNotify      bool
+	domain           string
+	cpf              string
+	password         string
+	token            string
+	cpfForm          *huh.Form
+	passwordForm     *huh.Form
+	keepForm         *huh.Form
+	punchForm        *huh.Form
+	forgetForm       *huh.Form
+	failedMsg        failedMsg
+	loginMsg         loginMsg
+	eventMsg         eventMsg
+	spinner          spinner.Model
+	paginator        paginator.Model
+	elapsed          time.Duration
+	lastNotification time.Time
+	help             help.Model
+	keys             keyMap
+	width            int
+	height           int
+	tooSmall         bool
 }
 
 var version = "development"
+
+//go:embed assets/clockwerk.png
+var clockwerkIcon []byte
+
+func getNotificationMessage(elapsed time.Duration) (message string, urgency string) {
+	hours := elapsed.Hours()
+	formattedTime := formatHoursAsHHMM(hours)
+	text := fmt.Sprintf("Você está trabalhando há %s sem intervalo.\n", formattedTime)
+
+	if hours >= 6 {
+		alert := "🚨 Conforme Art. 71 da CLT, é obrigatório um intervalo mínimo de 1 hora para jornadas acima de 6 horas."
+		return text + alert, "critical"
+	}
+	if hours >= 5 {
+		alert := "⚠️ Conforme Art. 71 da CLT, é recomendável um intervalo de 15 minutos para jornadas entre 4 e 6 horas."
+		return text + alert, "normal"
+	}
+
+	alert := "💡 Pausas curtas são recomendadas para preservar sua saúde e produtividade."
+
+	return text + alert, "low"
+}
+
+func sendNotification(title, message, urgency string) {
+	if runtime.GOOS != "linux" {
+		log.Printf("Notificações não suportadas neste sistema (%s)", runtime.GOOS)
+		return
+	}
+
+	tmpFile, err := os.CreateTemp("", "clockwerk_icon_*.png")
+	if err != nil {
+		log.Printf("Erro ao criar arquivo temporário: %v", err)
+		return
+	}
+
+	if _, err := tmpFile.Write(clockwerkIcon); err != nil {
+		log.Printf("Erro ao escrever ícone no arquivo temporário: %v", err)
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return
+	}
+	tmpFile.Close()
+
+	expireTime := "10000"
+	category := "productivity.timetracking"
+	if urgency == "critical" {
+		expireTime = "30000"
+	}
+
+	cmdParams := []string{
+		"-a", "Clockwerk",
+		"-i", tmpFile.Name(),
+		"-u", urgency,
+		"-t", expireTime,
+		"-c", category,
+		"-e",
+	}
+
+	cmdParams = append(cmdParams, title, message)
+	cmd := exec.Command("notify-send", cmdParams...)
+	err = cmd.Run()
+
+	os.Remove(tmpFile.Name())
+
+	if err != nil {
+		log.Printf("Erro ao enviar notificação: %v", err)
+	}
+}
 
 func formatHoursAsHHMM(hours float64) string {
 	totalMinutes := int(math.Round(hours * 60))
@@ -492,7 +564,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 
-	case 4: // Etapa 5: Spinner (busca de eventos)
+	case 4: // Etapa 5: Spinner (busca de eventos
 		m.spinner, cmd = m.spinner.Update(msg)
 		switch msg := msg.(type) {
 		case failedMsg:
@@ -641,6 +713,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tickMsg:
 			if m.timerRunning {
 				m.elapsed += time.Second
+				maybeTodayClock, exists := m.eventMsg.clocking[config.TodayKey]
+				if exists {
+					lastPunchTime := maybeTodayClock[m.punchCount-1].eventTime
+					currentElapsed := time.Since(lastPunchTime)
+
+					if currentElapsed.Hours() >= 4 {
+						if m.lastNotification.IsZero() || time.Since(m.lastNotification) >= 20*time.Minute {
+							ce := currentElapsed
+							go func(elapsed time.Duration) {
+								message, urgency := getNotificationMessage(elapsed)
+								sendNotification("Alerta Clockwerk", message, urgency)
+							}(ce)
+							m.lastNotification = time.Now()
+						}
+					}
+				}
+
 				return m, tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} })
 			}
 			return m, nil

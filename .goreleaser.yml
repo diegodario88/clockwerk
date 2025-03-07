@@ -2,4 +2,4 @@ builds:
   - main: ./main.go
     ldflags:
       - -X 'main.version={{ .Version }}'
-      - -H windowsgui
+      - -H=windowsgui

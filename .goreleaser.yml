@@ -1,5 +1,15 @@
 builds:
-  - main: ./main.go
+  - id: "windows"
+    main: ./main.go
+    goos: [windows]
+    goarch: [amd64]
     ldflags:
       - -X 'main.version={{ .Version }}'
       - -H=windowsgui
+
+  - id: "linux-darwin"
+    main: ./main.go
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -X 'main.version={{ .Version }}'

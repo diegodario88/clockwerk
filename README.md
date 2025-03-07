@@ -10,6 +10,8 @@
   - Inicie e encerre sua jornada com comandos intuitivos
 - **Gestão de intervalos**
   - Controle pausas para almoço e descanso
+- **Notificação (desktop linux)**
+  - Lembretes para ajudar a manter os apontamentos em dia
 - **Interface amigável**
   - Navegação simplificada via teclado
   - Visualização em tempo real dos registros
@@ -18,7 +20,7 @@
 - **Leve e rápido**
   - Consumo mínimo de recursos (CPU/RAM)
 
-## 🖦  Navegação
+## 🖦 Navegação
 
 As seguinte teclas de atalho são usadas para navegar e explorar o programa
 

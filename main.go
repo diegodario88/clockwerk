@@ -737,7 +737,7 @@ func (m ClockTimer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					lastPunchTime := maybeTodayClock[m.punchCount-1].eventTime
 					currentElapsed := time.Since(lastPunchTime)
 
-					if currentElapsed.Hours() >= 0.5 {
+					if currentElapsed.Hours() >= 4 {
 						if m.lastNotification.IsZero() || time.Since(m.lastNotification) >= 20*time.Minute {
 							ce := currentElapsed
 							go func(elapsed time.Duration) {

@@ -6,7 +6,6 @@ import (
 	"log"
 	"math"
 	"os"
-	"os/exec"
 	"runtime"
 	"sort"
 	"strconv"
@@ -28,6 +27,7 @@ import (
 	"github.com/diegodario88/clockwerk/senior"
 	"github.com/diegodario88/clockwerk/storage"
 	"github.com/diegodario88/clockwerk/ui"
+	"github.com/godbus/dbus/v5"
 )
 
 type keyMap struct {
@@ -144,7 +144,7 @@ type clockingMsg struct {
 	eventTime time.Time
 }
 
-type Model struct {
+type ClockTimer struct {
 	step             int
 	punchCount       int
 	activeTab        int
@@ -174,6 +174,7 @@ type Model struct {
 	width            int
 	height           int
 	tooSmall         bool
+	dbusCon          *dbus.Conn
 }
 
 var (
@@ -205,7 +206,7 @@ func getNotificationMessage(elapsed time.Duration) (message string, urgency stri
 	return text + alert, "low"
 }
 
-func sendNotification(title, message, urgency string) {
+func sendNotification(title, message, urgency string, con *dbus.Conn) {
 	if runtime.GOOS != "linux" {
 		log.Printf("Notificações não suportadas neste sistema (%s)", runtime.GOOS)
 		return
@@ -238,21 +239,25 @@ func sendNotification(title, message, urgency string) {
 		expireTime = "30000"
 	}
 
-	cmdParams := []string{
-		"-a", "Clockwerk",
-		"-i", clockwerkIconPath,
-		"-u", urgency,
-		"-t", expireTime,
-		"-c", category,
-		"-e",
-	}
-
-	cmdParams = append(cmdParams, title, message)
-	cmd := exec.Command("notify-send", cmdParams...)
-	err := cmd.Run()
-
-	if err != nil {
-		log.Printf("Erro ao enviar notificação: %v", err)
+	obj := con.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications")
+	call := obj.Call(
+		"org.freedesktop.Notifications.Notify",
+		0,
+		"Clockwerk",
+		uint32(0),
+		clockwerkIconPath,
+		title,
+		message,
+		[]string{},
+		map[string]dbus.Variant{
+			"urgency":        dbus.MakeVariant(urgency),
+			"expire_timeout": dbus.MakeVariant(expireTime),
+			"category":       dbus.MakeVariant(category),
+		},
+		int32(5000),
+	)
+	if call.Err != nil {
+		log.Printf("Erro ao enviar notificação: %v", call.Err)
 	}
 }
 
@@ -381,7 +386,7 @@ func handlePostClockingEvent(token string, event eventMsg) tea.Cmd {
 	}
 }
 
-func NewModel() Model {
+func NewClockTimer(con *dbus.Conn) ClockTimer {
 	sp := spinner.New()
 	sp.Spinner = spinner.Points
 	sp.Style = lipgloss.NewStyle().
@@ -417,7 +422,7 @@ func NewModel() Model {
 		initialToken = creds.Token
 	}
 
-	return Model{
+	return ClockTimer{
 		step:         initialStep,
 		domain:       initialDomain,
 		cpf:          initialCPF,
@@ -437,10 +442,11 @@ func NewModel() Model {
 		help:         helpModel,
 		keys:         keys,
 		activeTab:    0,
+		dbusCon:      con,
 	}
 }
 
-func (m Model) Init() tea.Cmd {
+func (m ClockTimer) Init() tea.Cmd {
 	tea.SetWindowTitle("Clockwerk")
 
 	config.Theme.Focused.Base = lipgloss.NewStyle().
@@ -458,7 +464,7 @@ func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m ClockTimer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -731,12 +737,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					lastPunchTime := maybeTodayClock[m.punchCount-1].eventTime
 					currentElapsed := time.Since(lastPunchTime)
 
-					if currentElapsed.Hours() >= 4 {
+					if currentElapsed.Hours() >= 0.5 {
 						if m.lastNotification.IsZero() || time.Since(m.lastNotification) >= 20*time.Minute {
 							ce := currentElapsed
 							go func(elapsed time.Duration) {
 								message, urgency := getNotificationMessage(elapsed)
-								sendNotification("Alerta Clockwerk", message, urgency)
+								sendNotification("Alerta Clockwerk", message, urgency, m.dbusCon)
 							}(ce)
 							m.lastNotification = time.Now()
 						}
@@ -767,7 +773,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m Model) View() string {
+func (m ClockTimer) View() string {
 	var b strings.Builder
 	if m.tooSmall {
 		b.WriteString(lipgloss.NewStyle().
@@ -1145,6 +1151,7 @@ func (m Model) View() string {
 			var memStats runtime.MemStats
 			runtime.ReadMemStats(&memStats)
 			goVersion := runtime.Version()
+			desktop := os.Getenv("XDG_CURRENT_DESKTOP")
 			osInfo := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
 			debugMode := "desativado"
 			if len(os.Getenv("DEBUG")) > 0 {
@@ -1161,6 +1168,7 @@ func (m Model) View() string {
 			contentBuilder.WriteString(fmt.Sprintf("Depuração:     %s\n", debugMode))
 			contentBuilder.WriteString(fmt.Sprintf("Go:            %s\n", goVersion))
 			contentBuilder.WriteString(fmt.Sprintf("Sistema:       %s\n", osInfo))
+			contentBuilder.WriteString(fmt.Sprintf("Desktop:       %s\n", desktop))
 			contentBuilder.WriteString(fmt.Sprintf("CPU Núcleos:   %d\n", runtime.NumCPU()))
 			contentBuilder.WriteString(fmt.Sprintf("Goroutines:    %d\n", runtime.NumGoroutine()))
 			contentBuilder.WriteString(
@@ -1201,6 +1209,7 @@ func main() {
 	if len(os.Getenv("DEBUG")) > 0 {
 		hasDebug = true
 	}
+
 	if hasDebug {
 		f, err := tea.LogToFile("debug.log", "debug")
 		if err != nil {
@@ -1210,7 +1219,14 @@ func main() {
 		defer f.Close()
 	}
 
-	program := tea.NewProgram(NewModel(), tea.WithAltScreen())
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+
+	clockTimer := NewClockTimer(conn)
+	program := tea.NewProgram(clockTimer, tea.WithAltScreen())
 
 	if _, err := program.Run(); err != nil {
 		if hasDebug {

@@ -15,6 +15,7 @@ require (
 	github.com/catppuccin/go v0.3.0 // indirect
 	github.com/charmbracelet/x/exp/strings v0.0.0-20250303111204-ce812b082f54 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/lrstanley/bubblezone v0.0.0-20250301021021-ab7b445e9861 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 )

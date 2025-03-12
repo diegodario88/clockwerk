@@ -150,7 +150,7 @@ func (m clockTimer) Init() tea.Cmd {
 		BorderLeft(true)
 
 	core.Theme.Focused.FocusedButton = core.Theme.Focused.FocusedButton.
-		Background(lipgloss.Color(core.SunflowerYellow))
+		Background(lipgloss.Color(core.AmberFlare))
 
 	if m.step == 0 {
 		return m.cpfForm.Init()

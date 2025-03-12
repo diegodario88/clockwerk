@@ -396,7 +396,7 @@ func renderDashboardStep(m *clockTimer) string {
 			case workedHours <= 5:
 				barColor = core.MintGreen
 			case workedHours <= 8.5:
-				barColor = core.ForestGreen
+				barColor = core.Forest
 			default:
 				barColor = core.LavaRed
 			}

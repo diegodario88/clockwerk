@@ -4,7 +4,7 @@ builds:
     goos: [windows]
     goarch: [amd64]
     ldflags:
-      - -X 'internal/core.version={{ .Version }}'
+      - -X 'github.com/diegodario88/clockwerk/internal/core.Version={{ .Version }}'
       - -H=windowsgui
 
   - id: "linux-darwin"
@@ -12,4 +12,4 @@ builds:
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     ldflags:
-      - -X 'internal/core.version={{ .Version }}'
+      - -X 'github.com/diegodario88/clockwerk/internal/core.Version={{ .Version }}'

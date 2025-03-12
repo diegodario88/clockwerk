@@ -8,7 +8,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/diegodario88/clockwerk/internal"
-	"github.com/godbus/dbus/v5"
 )
 
 func main() {
@@ -26,13 +25,7 @@ func main() {
 		defer f.Close()
 	}
 
-	conn, err := dbus.ConnectSessionBus()
-	if err != nil {
-		panic(err)
-	}
-	defer conn.Close()
-
-	clockTimer := internal.NewClockTimer(conn)
+	clockTimer := internal.NewClockTimer()
 	program := tea.NewProgram(clockTimer, tea.WithAltScreen())
 
 	if _, err := program.Run(); err != nil {

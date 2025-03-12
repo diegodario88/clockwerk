@@ -53,10 +53,16 @@ func handleCreateMessageNotification(elapsed time.Duration) (message string, urg
 	return text + alert, "low"
 }
 
-func handleDesktopNotification(title, message, urgency string, con *dbus.Conn) {
+func handleDesktopNotification(title, message, urgency string) {
 	if runtime.GOOS != "linux" {
 		return
 	}
+
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
 
 	createIconOnce.Do(func() {
 		if _, err := os.Stat("/tmp/clockwerk_icon.png"); err == nil {
@@ -85,7 +91,7 @@ func handleDesktopNotification(title, message, urgency string, con *dbus.Conn) {
 		expireTime = "30000"
 	}
 
-	obj := con.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications")
+	obj := conn.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications")
 	call := obj.Call(
 		"org.freedesktop.Notifications.Notify",
 		0,

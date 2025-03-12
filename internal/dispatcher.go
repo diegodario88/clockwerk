@@ -313,7 +313,7 @@ func dispatchDashboard(msg tea.Msg, m *clockTimer) (tea.Model, tea.Cmd) {
 						ce := currentElapsed
 						go func(elapsed time.Duration) {
 							message, urgency := handleCreateMessageNotification(elapsed)
-							handleDesktopNotification("Alerta Clockwerk", message, urgency, m.dbusCon)
+							handleDesktopNotification("Alerta Clockwerk", message, urgency)
 						}(ce)
 						m.lastNotification = time.Now()
 					}

@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/diegodario88/clockwerk/internal/core"
 	"github.com/diegodario88/clockwerk/internal/ui"
-	"github.com/godbus/dbus/v5"
 )
 
 type tickMsg struct{}
@@ -77,10 +76,9 @@ type clockTimer struct {
 	width            int
 	height           int
 	tooSmall         bool
-	dbusCon          *dbus.Conn
 }
 
-func NewClockTimer(con *dbus.Conn) clockTimer {
+func NewClockTimer() clockTimer {
 	sp := spinner.New()
 	sp.Spinner = spinner.Points
 	sp.Style = lipgloss.NewStyle().
@@ -136,7 +134,6 @@ func NewClockTimer(con *dbus.Conn) clockTimer {
 		help:         helpModel,
 		keys:         keys,
 		activeTab:    0,
-		dbusCon:      con,
 	}
 }
 

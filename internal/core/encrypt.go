@@ -1,4 +1,4 @@
-package infra
+package core
 
 import (
 	"crypto/aes"
@@ -12,7 +12,7 @@ import (
 	"os"
 )
 
-func DeriveEncryptionKey() []byte {
+func deriveEncryptionKey() []byte {
 	hostname, err := os.Hostname()
 	if err != nil {
 		hostname = "unknown"
@@ -40,7 +40,7 @@ func DeriveEncryptionKey() []byte {
 	return hash[:]
 }
 
-func Encrypt(data []byte, key []byte) ([]byte, []byte, error) {
+func encrypt(data []byte, key []byte) ([]byte, []byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		log.Println("Erro ao criar cifra: %w", err)
@@ -61,7 +61,7 @@ func Encrypt(data []byte, key []byte) ([]byte, []byte, error) {
 	return ciphertext, iv, nil
 }
 
-func Decrypt(ciphertext []byte, key []byte, iv []byte) ([]byte, error) {
+func decrypt(ciphertext []byte, key []byte, iv []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		log.Println("Erro ao criar cifra: %w", err)

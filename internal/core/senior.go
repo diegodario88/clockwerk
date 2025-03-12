@@ -1,4 +1,4 @@
-package senior
+package core
 
 import (
 	"bytes"

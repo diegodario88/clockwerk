@@ -1,4 +1,4 @@
-package storage
+package core
 
 import (
 	"encoding/base64"
@@ -7,8 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-
-	security "github.com/diegodario88/clockwerk/infra"
 )
 
 type UserCredentials struct {
@@ -30,9 +28,9 @@ func SaveCredentials(creds UserCredentials) error {
 		return fmt.Errorf("erro ao serializar credenciais: %v", err)
 	}
 
-	key := security.DeriveEncryptionKey()
+	key := deriveEncryptionKey()
 
-	ciphertext, iv, err := security.Encrypt(jsonData, key)
+	ciphertext, iv, err := encrypt(jsonData, key)
 	if err != nil {
 		log.Println("Erro ao realizar encrypt: %w", err)
 		return fmt.Errorf("erro ao criptografar: %v", err)
@@ -88,9 +86,9 @@ func LoadCredentials() (UserCredentials, error) {
 		return creds, fmt.Errorf("erro ao decodificar IV: %v", err)
 	}
 
-	key := security.DeriveEncryptionKey()
+	key := deriveEncryptionKey()
 
-	plaintext, err := security.Decrypt(ciphertext, key, iv)
+	plaintext, err := decrypt(ciphertext, key, iv)
 	if err != nil {
 		log.Println("Erro ao descriptografar: %w", err)
 		return creds, fmt.Errorf("erro ao descriptografar: %v", err)

@@ -5,7 +5,6 @@ builds:
     goarch: [amd64]
     ldflags:
       - -X 'github.com/diegodario88/clockwerk/internal/core.Version={{ .Version }}'
-      - -H=windowsgui
 
   - id: "linux-darwin"
     main: ./cmd/main.go

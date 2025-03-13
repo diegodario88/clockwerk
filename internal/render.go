@@ -439,7 +439,10 @@ func renderDashboardStep(m *clockTimer) string {
 		var memStats runtime.MemStats
 		runtime.ReadMemStats(&memStats)
 		goVersion := runtime.Version()
-		desktop := os.Getenv("XDG_CURRENT_DESKTOP")
+		desktop := "não reconhecido"
+		if envDesktop := os.Getenv("XDG_CURRENT_DESKTOP"); envDesktop != "" {
+			desktop = envDesktop
+		}
 		osInfo := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
 		debugMode := "desativado"
 		if len(os.Getenv("DEBUG")) > 0 {

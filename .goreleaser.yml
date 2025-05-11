@@ -1,13 +1,13 @@
 builds:
   - id: "windows"
-    main: ./cmd/main.go
+    main: main.go
     goos: [windows]
     goarch: [amd64]
     ldflags:
       - -X 'github.com/diegodario88/clockwerk/internal/core.Version={{ .Version }}'
 
   - id: "linux-darwin"
-    main: ./cmd/main.go
+    main: main.go
     goos: [linux, darwin]
     goarch: [amd64, arm64]
     ldflags:

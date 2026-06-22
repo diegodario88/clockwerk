@@ -16,6 +16,8 @@ import (
 
 type tickMsg struct{}
 
+type refreshTickMsg struct{}
+
 type clockingMsg struct {
 	id        string
 	date      string
@@ -53,6 +55,8 @@ type clockTimer struct {
 	keepLogged       bool
 	timerRunning     bool
 	tickScheduled    bool
+	refreshing       bool
+	refreshScheduled bool
 	hasAuthRecover   bool
 	shoudNotify      bool
 	domain           string
@@ -70,6 +74,7 @@ type clockTimer struct {
 	spinner          spinner.Model
 	paginator        paginator.Model
 	elapsed          time.Duration
+	nextRefresh      time.Time
 	lastNotification time.Time
 	help             help.Model
 	keys             keyMap

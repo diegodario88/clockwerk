@@ -264,11 +264,33 @@ func renderDashboardStep(m *clockTimer) string {
 		}
 	}
 
+	left := " Registro de Ponto - Clockwerk"
+
+	var right string
+	if m.refreshing {
+		right = "⟳ atualizando… "
+	} else if !m.nextRefresh.IsZero() {
+		remaining := time.Until(m.nextRefresh)
+		if remaining < 0 {
+			remaining = 0
+		}
+		right = fmt.Sprintf(
+			"↻ próx. atualização %02d:%02d ",
+			int(remaining.Minutes()),
+			int(remaining.Seconds())%60,
+		)
+	}
+
+	gap := core.AppWidth - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+
 	b.WriteString(
 		lipgloss.NewStyle().
 			Bold(true).
 			Width(core.AppWidth).
-			Render(" Registro de Ponto - Clockwerk") +
+			Render(left+strings.Repeat(" ", gap)+right) +
 			"\n",
 	)
 
@@ -293,12 +315,23 @@ func renderDashboardStep(m *clockTimer) string {
 	switch m.activeTab {
 	case 0:
 		lines := []string{
-			"Colaborador:   " + m.eventMsg.employeeName,
-			"Empresa:       " + m.eventMsg.companyName,
-			"Data atual:    " + now.Local().Format("02/01/2006"),
-			"Expediente:    " + m.eventMsg.timeTable,
-			"Registros:     " + strconv.Itoa(m.punchCount),
+			"Colaborador:    " + m.eventMsg.employeeName,
+			"Empresa:        " + m.eventMsg.companyName,
+			"Data atual:     " + now.Local().Format("02/01/2006"),
+			"Expediente:     " + m.eventMsg.timeTable,
 		}
+
+		if exp, ok := core.ParseTimeTable(m.eventMsg.timeTable); ok {
+			var punches []time.Time
+			for _, event := range m.eventMsg.clocking[core.TodayKey] {
+				punches = append(punches, event.eventTime)
+			}
+			if predicted, ok := core.PredictExit(exp, punches, now); ok {
+				lines = append(lines, "Saída prevista: "+predicted.Format("15:04"))
+			}
+		}
+
+		lines = append(lines, "Registros:      "+strconv.Itoa(m.punchCount))
 
 		contentBuilder.WriteString(strings.Join(lines, "\n"))
 		maybeTodayClock, exists := m.eventMsg.clocking[core.TodayKey]

@@ -60,7 +60,8 @@ func handleDesktopNotification(title, message, urgency string) {
 
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
-		panic(err)
+		log.Printf("Notificação indisponível (sessão D-Bus): %v", err)
+		return
 	}
 	defer conn.Close()
 

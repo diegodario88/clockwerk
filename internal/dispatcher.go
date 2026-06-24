@@ -324,6 +324,11 @@ func dispatchDashboard(msg tea.Msg, m *clockTimer) (tea.Model, tea.Cmd) {
 			}
 			m.forgetForm = ui.NewForgetForm()
 			return m, m.forgetForm.Init()
+		case key.Matches(msg, m.keys.ToggleHistoryView):
+			if m.activeTab == 1 {
+				m.historyView = (m.historyView + 1) % 2
+			}
+			return m, nil
 		case key.Matches(msg, m.keys.MoveBack):
 			if m.activeTab > 0 {
 				m.activeTab--

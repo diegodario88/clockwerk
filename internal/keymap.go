@@ -5,13 +5,14 @@ import "github.com/charmbracelet/bubbles/key"
 type customHelp []key.Binding
 
 type keyMap struct {
-	Punch       key.Binding
-	ForgetCreds key.Binding
-	Quit        key.Binding
-	Exit        key.Binding
-	MoveBack    key.Binding
-	MoveForward key.Binding
-	Retry       key.Binding
+	Punch             key.Binding
+	ForgetCreds       key.Binding
+	Quit              key.Binding
+	Exit              key.Binding
+	MoveBack          key.Binding
+	MoveForward       key.Binding
+	Retry             key.Binding
+	ToggleHistoryView key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
@@ -58,6 +59,10 @@ var keys = keyMap{
 	Retry: key.NewBinding(
 		key.WithKeys("r", "R"),
 		key.WithHelp("<r>", "Tentar novamente"),
+	),
+	ToggleHistoryView: key.NewBinding(
+		key.WithKeys("v", "V"),
+		key.WithHelp("<v>", "Alternar período"),
 	),
 	Exit: key.NewBinding(
 		key.WithKeys("q", "Q"),

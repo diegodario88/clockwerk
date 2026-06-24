@@ -52,6 +52,7 @@ type clockTimer struct {
 	step             int
 	punchCount       int
 	activeTab        int
+	historyView      int
 	keepLogged       bool
 	timerRunning     bool
 	tickScheduled    bool
@@ -139,6 +140,7 @@ func NewClockTimer() clockTimer {
 		help:         helpModel,
 		keys:         keys,
 		activeTab:    0,
+		historyView:  0,
 	}
 }
 

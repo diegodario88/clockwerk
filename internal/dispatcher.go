@@ -13,6 +13,59 @@ import (
 	"github.com/diegodario88/clockwerk/internal/ui"
 )
 
+// applyEventMsg atualiza o eventMsg do modelo e recalcula punchCount, elapsed
+// e timerRunning a partir das marcações de hoje.
+func applyEventMsg(m *clockTimer, msg eventMsg) {
+	m.eventMsg = msg
+	m.elapsed = 0
+	m.timerRunning = false
+
+	maybeTodayClock, exists := m.eventMsg.clocking[core.TodayKey]
+	if exists {
+		m.punchCount = len(maybeTodayClock)
+		if len(maybeTodayClock)%2 != 0 {
+			m.timerRunning = true
+			loc := time.FixedZone("UTC-3", -3*3600)
+			nowInUTC3 := time.Now().In(loc)
+			formatted := nowInUTC3.Format(core.TimeLayout)
+			parsedTime, err := time.ParseInLocation(core.TimeLayout, formatted, loc)
+			if err != nil {
+				log.Println("Erro ao parsear o tempo:", err)
+			}
+			maybeTodayClock = append(maybeTodayClock, clockingMsg{eventTime: parsedTime})
+		}
+
+		for i := 0; i < len(maybeTodayClock)-1; i += 2 {
+			startTime := maybeTodayClock[i].eventTime
+			endTime := maybeTodayClock[i+1].eventTime
+			m.elapsed += endTime.Sub(startTime)
+		}
+	}
+}
+
+// scheduleTick mantém um único tick de 1s ativo no dashboard (usado tanto pelo
+// timer quanto pelo countdown de refresh). O guard tickScheduled evita criar
+// chains paralelas que acelerariam o relógio.
+func scheduleTick(m *clockTimer) tea.Cmd {
+	if m.tickScheduled {
+		return nil
+	}
+	m.tickScheduled = true
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} })
+}
+
+// scheduleRefresh agenda o próximo ciclo de refresh automático (10 min),
+// evitando agendar dois ciclos simultâneos via refreshScheduled. Registra o
+// horário do próximo refresh para alimentar o countdown na UI.
+func scheduleRefresh(m *clockTimer) tea.Cmd {
+	if m.refreshScheduled {
+		return nil
+	}
+	m.refreshScheduled = true
+	m.nextRefresh = time.Now().Add(10 * time.Minute)
+	return tea.Tick(10*time.Minute, func(t time.Time) tea.Msg { return refreshTickMsg{} })
+}
+
 func dispatchWindowSizeChange(msg tea.WindowSizeMsg, m *clockTimer) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
@@ -166,38 +219,8 @@ func dispatchEventsSpinner(msg tea.Msg, m *clockTimer) (tea.Model, tea.Cmd) {
 
 	case eventMsg:
 		m.step = 5
-		m.eventMsg = msg
-		m.elapsed = 0
-		m.timerRunning = false
-		maybeTodayClock, exists := m.eventMsg.clocking[core.TodayKey]
-		if exists {
-			m.punchCount = len(maybeTodayClock)
-			if len(maybeTodayClock)%2 != 0 {
-				m.timerRunning = true
-				loc := time.FixedZone("UTC-3", -3*3600)
-				nowInUTC3 := time.Now().In(loc)
-				formatted := nowInUTC3.Format(core.TimeLayout)
-				parsedTime, err := time.ParseInLocation(core.TimeLayout, formatted, loc)
-				if err != nil {
-					log.Println("Erro ao parsear o tempo:", err)
-				}
-				maybeTodayClock = append(maybeTodayClock, clockingMsg{eventTime: parsedTime})
-			}
-
-			for i := 0; i < len(maybeTodayClock)-1; i += 2 {
-				startTime := maybeTodayClock[i].eventTime
-				endTime := maybeTodayClock[i+1].eventTime
-				m.elapsed += endTime.Sub(startTime)
-			}
-		}
-
-		if m.timerRunning {
-			return m, tea.Batch(cmd, tea.Tick(time.Second, func(t time.Time) tea.Msg {
-				m.tickScheduled = false
-				return tickMsg{}
-			}))
-		}
-		return m, nil
+		applyEventMsg(m, msg)
+		return m, tea.Batch(cmd, scheduleTick(m), scheduleRefresh(m))
 
 	case tea.KeyMsg:
 		switch {
@@ -217,6 +240,32 @@ func dispatchEventsSpinner(msg tea.Msg, m *clockTimer) (tea.Model, tea.Cmd) {
 func dispatchDashboard(msg tea.Msg, m *clockTimer) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
+	// Tick de 1s tratado no topo para manter o relógio e o countdown de refresh
+	// vivos mesmo com formulários abertos ou com o timer parado.
+	if _, ok := msg.(tickMsg); ok {
+		m.tickScheduled = false
+		if m.timerRunning {
+			m.elapsed += time.Second
+			maybeTodayClock, exists := m.eventMsg.clocking[core.TodayKey]
+			if exists {
+				lastPunchTime := maybeTodayClock[m.punchCount-1].eventTime
+				currentElapsed := time.Since(lastPunchTime)
+
+				if currentElapsed.Hours() >= 4 {
+					if m.lastNotification.IsZero() || time.Since(m.lastNotification) >= 20*time.Minute {
+						ce := currentElapsed
+						go func(elapsed time.Duration) {
+							message, urgency := handleCreateMessageNotification(elapsed)
+							handleDesktopNotification("Alerta Clockwerk", message, urgency)
+						}(ce)
+						m.lastNotification = time.Now()
+					}
+				}
+			}
+		}
+		return m, scheduleTick(m)
+	}
+
 	if m.forgetForm != nil && m.activeTab == 0 {
 		updatedForm, c := m.forgetForm.Update(msg)
 		if f, ok := updatedForm.(*huh.Form); ok {
@@ -230,12 +279,7 @@ func dispatchDashboard(msg tea.Msg, m *clockTimer) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.forgetForm = nil
-			if m.timerRunning {
-				return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
-					return tickMsg{}
-				})
-			}
-			return m, nil
+			return m, scheduleTick(m)
 		}
 
 		return m, cmd
@@ -258,11 +302,7 @@ func dispatchDashboard(msg tea.Msg, m *clockTimer) (tea.Model, tea.Cmd) {
 				)
 			} else {
 				m.punchForm = nil
-				if m.timerRunning {
-					return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
-						return tickMsg{}
-					})
-				}
+				return m, scheduleTick(m)
 			}
 		}
 		return m, cmd
@@ -284,6 +324,11 @@ func dispatchDashboard(msg tea.Msg, m *clockTimer) (tea.Model, tea.Cmd) {
 			}
 			m.forgetForm = ui.NewForgetForm()
 			return m, m.forgetForm.Init()
+		case key.Matches(msg, m.keys.ToggleHistoryView):
+			if m.activeTab == 1 {
+				m.historyView = (m.historyView + 1) % 2
+			}
+			return m, nil
 		case key.Matches(msg, m.keys.MoveBack):
 			if m.activeTab > 0 {
 				m.activeTab--
@@ -300,31 +345,28 @@ func dispatchDashboard(msg tea.Msg, m *clockTimer) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-	case tickMsg:
-		if m.timerRunning {
-			m.elapsed += time.Second
-			maybeTodayClock, exists := m.eventMsg.clocking[core.TodayKey]
-			if exists {
-				lastPunchTime := maybeTodayClock[m.punchCount-1].eventTime
-				currentElapsed := time.Since(lastPunchTime)
+	case refreshTickMsg:
+		m.refreshScheduled = false
+		m.refreshing = true
+		return m, handleGetClockingEvent(m.token)
 
-				if currentElapsed.Hours() >= 4 {
-					if m.lastNotification.IsZero() || time.Since(m.lastNotification) >= 20*time.Minute {
-						ce := currentElapsed
-						go func(elapsed time.Duration) {
-							message, urgency := handleCreateMessageNotification(elapsed)
-							handleDesktopNotification("Alerta Clockwerk", message, urgency)
-						}(ce)
-						m.lastNotification = time.Now()
-					}
-				}
-			}
+	case eventMsg:
+		wasRefreshing := m.refreshing
+		applyEventMsg(m, msg)
+		m.refreshing = false
 
-			return m, tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg{} })
+		if wasRefreshing {
+			go handleDesktopNotification("Clockwerk", "Marcações atualizadas.", "low")
 		}
-		return m, nil
+		return m, tea.Batch(scheduleTick(m), scheduleRefresh(m))
 
 	case FailedMsg:
+		// Falha de refresh em segundo plano não derruba o dashboard: mantém os
+		// dados atuais, remove o indicador e reagenda o próximo ciclo.
+		if m.refreshing {
+			m.refreshing = false
+			return m, scheduleRefresh(m)
+		}
 		m.step = 4
 		m.failedMsg = msg
 		return m, nil

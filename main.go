@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -23,6 +24,11 @@ func main() {
 			os.Exit(1)
 		}
 		defer f.Close()
+	} else {
+		// Sem modo debug, descarta o log padrão: a TUI usa altscreen e qualquer
+		// escrita em stderr (ex.: falha de notificação) apareceria por cima da
+		// interface.
+		log.SetOutput(io.Discard)
 	}
 
 	clockTimer := internal.NewClockTimer()

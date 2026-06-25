@@ -16,6 +16,8 @@ import (
 
 type tickMsg struct{}
 
+type refreshTickMsg struct{}
+
 type clockingMsg struct {
 	id        string
 	date      string
@@ -50,9 +52,12 @@ type clockTimer struct {
 	step             int
 	punchCount       int
 	activeTab        int
+	historyView      int
 	keepLogged       bool
 	timerRunning     bool
 	tickScheduled    bool
+	refreshing       bool
+	refreshScheduled bool
 	hasAuthRecover   bool
 	shoudNotify      bool
 	domain           string
@@ -70,6 +75,7 @@ type clockTimer struct {
 	spinner          spinner.Model
 	paginator        paginator.Model
 	elapsed          time.Duration
+	nextRefresh      time.Time
 	lastNotification time.Time
 	help             help.Model
 	keys             keyMap
@@ -134,6 +140,7 @@ func NewClockTimer() clockTimer {
 		help:         helpModel,
 		keys:         keys,
 		activeTab:    0,
+		historyView:  0,
 	}
 }
 

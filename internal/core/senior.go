@@ -191,8 +191,10 @@ func GetClockingEvents(token string) ([]clockingEvent, error) {
 		Filter: requestFilter{
 			ActivePlatformUser: true,
 			PageInfo: pageInfo{
-				Page:     0,
-				PageSize: "20",
+				Page: 0,
+				// Maior que o padrão para cobrir o mês na visão mensal do Histórico
+				// (a query não tem filtro por data).
+				PageSize: "200",
 			},
 			NameSearch: "",
 			Sort: sort{
